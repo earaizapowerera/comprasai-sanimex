@@ -31,10 +31,12 @@ from hdbcli import dbapi
 
 random.seed(20260823)
 
-HANA_HOST = '192.168.99.77'
-HANA_PORT = 30215
-HANA_USER = 'EARAIZA'
-HANA_PASS = 'S@nimex-car_2026'
+# Credenciales via variables de entorno (Waykee Secrets markers en bash). NO hardcodear.
+#   H={SanimexHanaHost} P={SanimexCARHanaPuerto} U={SanimexCARUser} PW={SanimexCARPassword}
+HANA_HOST = os.environ['H']
+HANA_PORT = int(os.environ['P'])
+HANA_USER = os.environ['U']
+HANA_PASS = os.environ['PW']
 
 HERE = os.path.dirname(__file__)
 DB = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, 'comprasai.db')
