@@ -21,8 +21,10 @@ from fastapi.staticfiles import StaticFiles
 from app.core.config import AUTO_SEED_IF_MISSING, DB_PATH, FRONTEND_STATIC_DIR
 from app.core.db import get_db
 from app.routers import engines_status, inventarios, kpis, materiales, semaforo, sucursales, ventas
+from app.routers.engines import balanceos as engine_balanceos
 from app.routers.engines import chat_agente
 from app.routers.engines import forecast as engine_forecast
+from app.routers.engines import remates as engine_remates
 from app.routers.engines import sugeridos as engine_sugeridos
 
 logging.basicConfig(level=logging.INFO)
@@ -71,8 +73,8 @@ app.include_router(chat_agente.router)
 app.include_router(engine_sugeridos.router)
 app.include_router(semaforo.router)
 app.include_router(engine_forecast.router)
-# El motor restante (remates C1) se registra aquí de la misma forma:
-# app.include_router(<engine>.router)
+app.include_router(engine_balanceos.router)
+app.include_router(engine_remates.router)
 # Ver app/routers/engines/README_MOTORES.py
 
 
