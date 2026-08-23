@@ -210,7 +210,7 @@ def compute_ruteo_remate(cajas: float, economico: bool, organizacion: str, plant
 def detectar_remates(
     organizacion: Optional[str] = Query(None, description="GAM|GSA|SA|GAMN"),
     dias_min: int = Query(DIAS_SIN_VENTA_DEFAULT_UMBRAL, ge=0, le=730),
-    limit: int = Query(40, ge=1, le=200),
+    limit: int = Query(150, ge=1, le=200),
     db: sqlite3.Connection = Depends(get_db),
 ):
     escalas, rutas_gam, plazas = _load_config(db)
@@ -222,6 +222,12 @@ def detectar_remates(
         params.append(organizacion)
     where_sql = " AND ".join(where)
 
+    # Sin LIMIT aquí (antes 600): los económicos rematan barato (precio_venta
+    # promedio ~$78 vs ~$1,223 en el resto), así que aun con 30-45 cajas su
+    # cajas*precio quedaba fuera del top 600 y nunca llegaban al filtro de
+    # abajo -> ese, no solo el filtro de diasSinVenta, era la causa real de
+    # 0 económicos en /detectar. El universo de candidatos (cajas_remanentes>0)
+    # es acotado (~10k filas en el dataset de la demo), barato de traer completo.
     candidatos = db.execute(
         f"""SELECT i.material_id, i.plant, i.cajas_remanentes,
                    m.descripcion, m.abc, m.economico, m.precio_venta,
@@ -230,8 +236,7 @@ def detectar_remates(
             JOIN materiales m ON m.material_id = i.material_id
             JOIN sucursales s ON s.plant = i.plant
             WHERE {where_sql}
-            ORDER BY (i.cajas_remanentes * m.precio_venta) DESC
-            LIMIT 600""",
+            ORDER BY (i.cajas_remanentes * m.precio_venta) DESC""",
         params,
     ).fetchall()
 
@@ -267,11 +272,16 @@ def detectar_remates(
 
     items = []
     for r in candidatos:
-        dsv = dias_sin_venta(r["material_id"], r["plant"])
-        if dsv < dias_min:
-            continue
         cajas = r["cajas_remanentes"]
         economico = bool(r["economico"])
+        # Económico + 30 cajas o más -> remate directo a $120 por regla explícita
+        # de la minuta, sin importar rotación: no requiere ser slow-mover, así
+        # que se exenta del filtro diasSinVenta (antes excluía los 340 casos
+        # reales de este tipo, dejando /detectar sin ningún económico).
+        exento_umbral = economico and cajas >= 30
+        dsv = dias_sin_venta(r["material_id"], r["plant"])
+        if dsv < dias_min and not exento_umbral:
+            continue
         precio, es_supuesto, es_excepcion, motivo = precio_remate(cajas, economico, escalas)
         ruteo = compute_ruteo_remate(
             cajas, economico, r["organizacion"], r["plant"], r["nombre"], r["corredor"], escalas, rutas_gam, plazas
@@ -303,6 +313,31 @@ def detectar_remates(
 
     items.sort(key=lambda x: x["valorEnRiesgo"], reverse=True)
     total = len(items)
+
+    # Mezcla por escala antes de recortar a `limit`: precio_venta de los
+    # económicos es ~15x menor que el resto (~$78 vs ~$1,223 promedio), así
+    # que aun con 30+ cajas su valorEnRiesgo casi nunca compite con items de
+    # pocas cajas pero precio alto -> ordenar solo por valorEnRiesgo dejaba
+    # 0 económicos (y 0 variedad de escala $70/$80) en la página por default,
+    # sin importar qué tan alto sea `limit`. Se agrupa por escala -y el
+    # económico-directo $120 aparte del $120 regular de 11-14 cajas, mismo
+    # problema dentro del propio bucket- y se intercala round-robin,
+    # preservando el orden por valorEnRiesgo DENTRO de cada grupo.
+    grupos: dict = {}
+    for it in items:
+        # esExcepcionPrecio también es True para el caso no-económico >30
+        # cajas ("supuesto a validar", ver precio_remate) — no confundir con
+        # el económico-directo real, o ese bucket también los mezclaría.
+        es_economico_directo = it["economico"] and it["esExcepcionPrecio"]
+        clave = "economico_directo" if es_economico_directo else it["precioPorCaja"]
+        grupos.setdefault(clave, []).append(it)
+    orden_grupos = sorted(grupos.keys(), key=lambda k: (isinstance(k, str), k))
+    items = []
+    while any(grupos[k] for k in orden_grupos):
+        for k in orden_grupos:
+            if grupos[k]:
+                items.append(grupos[k].pop(0))
+
     items = items[:limit]
     for i, it in enumerate(items, start=1):
         it["id"] = f"REM-{i:03d}"
