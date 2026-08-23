@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.core.config import AUTO_SEED_IF_MISSING, DB_PATH, FRONTEND_STATIC_DIR
-from app.core.db import get_db
+from app.core.db import get_connection, get_db
 from app.routers import engines_status, inventarios, kpis, materiales, semaforo, sucursales, ventas
 from app.routers.engines import balanceos as engine_balanceos
 from app.routers.engines import chat_agente
@@ -56,6 +56,18 @@ def _ensure_dataset() -> None:
     from data.seed_sintetico import generate  # import diferido: evita costo si ya hay .db
 
     generate(DB_PATH)
+
+
+@app.on_event("startup")
+def _init_engine_tables() -> None:
+    """Crea/siembra UNA vez las tablas auxiliares editables de los motores
+    (escalas/rutas de remate, costos de traslado por corredor) antes de
+    aceptar tráfico. Evita hacerlo en el hot path de cada GET (causaba
+    'database is locked' bajo concurrencia — ver comentarios en
+    engines/remates.py y engines/balanceos.py)."""
+    with get_connection() as conn:
+        engine_remates.init_tables(conn)
+        engine_balanceos.init_tables(conn)
 
 
 @app.get("/api/health", tags=["health"])

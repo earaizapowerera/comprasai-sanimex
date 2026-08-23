@@ -41,9 +41,16 @@ def _ensure_tables(db: sqlite3.Connection) -> None:
 
 
 def _costo_traslado_por_corredor(db: sqlite3.Connection) -> dict:
-    _ensure_tables(db)
+    # NO llama _ensure_tables aquí (hot path de GET /propuestas): causaba
+    # "database is locked" bajo concurrencia. La tabla se crea UNA vez en
+    # el startup de la app vía init_tables() (ver main.py).
     rows = db.execute("SELECT corredor, costo_caja_traslado FROM balanceo_costo_corredor").fetchall()
     return {r["corredor"]: r["costo_caja_traslado"] for r in rows}
+
+
+def init_tables(db: sqlite3.Connection) -> None:
+    """Llamado UNA vez desde el startup de la app (main.py)."""
+    _ensure_tables(db)
 
 
 @router.get("/propuestas")

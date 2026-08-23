@@ -26,6 +26,12 @@ def get_raw_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     conn.row_factory = _row_factory
     conn.execute("PRAGMA foreign_keys = ON")
+    # busy_timeout: sin esto, cualquier escritura concurrente (p.ej. dos
+    # requests creando/actualizando tablas auxiliares al mismo tiempo) falla
+    # de inmediato con "database is locked" en vez de esperar. Visto en vivo
+    # (T4, 23-ago) como 500 intermitente en /api/remates/detectar y
+    # /api/balanceos/propuestas bajo el prewarm del deploy.
+    conn.execute("PRAGMA busy_timeout = 5000")
     return conn
 
 

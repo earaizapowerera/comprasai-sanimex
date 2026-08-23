@@ -104,7 +104,11 @@ def _ensure_tables(db: sqlite3.Connection) -> None:
 
 
 def _load_config(db: sqlite3.Connection):
-    _ensure_tables(db)
+    # NO llama _ensure_tables aquí a propósito: este es el hot path de GET
+    # /detectar. Hacer CREATE TABLE/INSERT/COMMIT en cada request causaba
+    # "database is locked" bajo concurrencia (visto en vivo, 23-ago). Las
+    # tablas se siembran UNA vez en el startup de la app (ver init_tables
+    # llamado desde main.py) y aquí solo se lee.
     escalas = [
         (r["cajas_min"], r["cajas_max"], r["precio_caja"], bool(r["traslada"]))
         for r in db.execute("SELECT * FROM remate_escalas ORDER BY cajas_min").fetchall()
@@ -115,6 +119,13 @@ def _load_config(db: sqlite3.Connection):
     }
     plazas = [r["nombre"] for r in db.execute("SELECT nombre FROM remate_plazas_excepcion").fetchall()]
     return escalas, rutas, plazas
+
+
+def init_tables(db: sqlite3.Connection) -> None:
+    """Llamado UNA vez desde el startup de la app (main.py) — crea y siembra
+    las tablas editables antes de aceptar requests, evitando escrituras en
+    el hot path de GET /detectar."""
+    _ensure_tables(db)
 
 
 # ---------------------------------------------------------------------------
