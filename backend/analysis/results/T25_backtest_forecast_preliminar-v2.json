@@ -1,0 +1,1987 @@
+{
+  "generado_por": "T25 (waykee 290123) -- backend/analysis/backtest_forecast.py",
+  "db_path": "/private/tmp/v2/comprasai.db",
+  "hasta_mes": "2026-07",
+  "horizonte_max": 3,
+  "n_origenes_solicitados": 12,
+  "censura_disponible": false,
+  "meses_desabasto_detectados": 0,
+  "meta_canal": {
+    "nivel": "canal",
+    "total_universo_pares": 10197,
+    "top_n_solicitado": 300,
+    "top_n_efectivo": 300,
+    "valor_total_universo_m2": 29059745.8,
+    "valor_top_n_m2": 20499770.6,
+    "cobertura_valor_pct": 70.5
+  },
+  "meta_sucursal": {
+    "nivel": "sucursal",
+    "total_universo_pares": 208578,
+    "top_n_solicitado": 30000,
+    "top_n_efectivo": 30000,
+    "valor_total_universo_m2": 29059745.8,
+    "valor_top_n_m2": 24577596.0,
+    "cobertura_valor_pct": 84.6
+  },
+  "agregaciones": {
+    "canal": {
+      "global": [
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "horizonte": 1,
+          "wape_pct": 39.84,
+          "sesgo_pct": 2.91,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "horizonte": 1,
+          "wape_pct": 22.41,
+          "sesgo_pct": 3.14,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "horizonte": 1,
+          "wape_pct": 27.85,
+          "sesgo_pct": 7.55,
+          "n_observaciones": 3500
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "horizonte": 1,
+          "wape_pct": 41.54,
+          "sesgo_pct": 13.65,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "horizonte": 1,
+          "wape_pct": 34.04,
+          "sesgo_pct": -5.85,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "horizonte": 2,
+          "wape_pct": 43.08,
+          "sesgo_pct": 3.97,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "horizonte": 2,
+          "wape_pct": 25.38,
+          "sesgo_pct": 4.44,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "horizonte": 2,
+          "wape_pct": 32.06,
+          "sesgo_pct": 10.69,
+          "n_observaciones": 3500
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "horizonte": 2,
+          "wape_pct": 47.24,
+          "sesgo_pct": 19.96,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "horizonte": 2,
+          "wape_pct": 36.73,
+          "sesgo_pct": -4.67,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "horizonte": 3,
+          "wape_pct": 45.83,
+          "sesgo_pct": 6.62,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "horizonte": 3,
+          "wape_pct": 28.34,
+          "sesgo_pct": 6.04,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "horizonte": 3,
+          "wape_pct": 36.37,
+          "sesgo_pct": 14.37,
+          "n_observaciones": 3500
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "horizonte": 3,
+          "wape_pct": 53.13,
+          "sesgo_pct": 27.33,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "horizonte": 3,
+          "wape_pct": 39.07,
+          "sesgo_pct": -3.2,
+          "n_observaciones": 3550
+        }
+      ],
+      "por_abc": [
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "horizonte": 1,
+          "abc": "A",
+          "wape_pct": 39.84,
+          "sesgo_pct": 2.91,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "horizonte": 1,
+          "abc": "A",
+          "wape_pct": 22.41,
+          "sesgo_pct": 3.14,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "horizonte": 1,
+          "abc": "A",
+          "wape_pct": 27.85,
+          "sesgo_pct": 7.55,
+          "n_observaciones": 3500
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "horizonte": 1,
+          "abc": "A",
+          "wape_pct": 41.54,
+          "sesgo_pct": 13.65,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "horizonte": 1,
+          "abc": "A",
+          "wape_pct": 34.04,
+          "sesgo_pct": -5.85,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "horizonte": 2,
+          "abc": "A",
+          "wape_pct": 43.08,
+          "sesgo_pct": 3.97,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "horizonte": 2,
+          "abc": "A",
+          "wape_pct": 25.38,
+          "sesgo_pct": 4.44,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "horizonte": 2,
+          "abc": "A",
+          "wape_pct": 32.06,
+          "sesgo_pct": 10.69,
+          "n_observaciones": 3500
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "horizonte": 2,
+          "abc": "A",
+          "wape_pct": 47.24,
+          "sesgo_pct": 19.96,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "horizonte": 2,
+          "abc": "A",
+          "wape_pct": 36.73,
+          "sesgo_pct": -4.67,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "horizonte": 3,
+          "abc": "A",
+          "wape_pct": 45.83,
+          "sesgo_pct": 6.62,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "horizonte": 3,
+          "abc": "A",
+          "wape_pct": 28.34,
+          "sesgo_pct": 6.04,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "horizonte": 3,
+          "abc": "A",
+          "wape_pct": 36.37,
+          "sesgo_pct": 14.37,
+          "n_observaciones": 3500
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "horizonte": 3,
+          "abc": "A",
+          "wape_pct": 53.13,
+          "sesgo_pct": 27.33,
+          "n_observaciones": 3550
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "horizonte": 3,
+          "abc": "A",
+          "wape_pct": 39.07,
+          "sesgo_pct": -3.2,
+          "n_observaciones": 3550
+        }
+      ],
+      "por_familia": [
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "CASSABELLA",
+          "wape_pct": 96.51,
+          "sesgo_pct": -9.72,
+          "n_observaciones": 36
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "CASSABELLA",
+          "wape_pct": 105.52,
+          "sesgo_pct": 9.19,
+          "n_observaciones": 36
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "familia": "CASSABELLA",
+          "wape_pct": 129.27,
+          "sesgo_pct": -5.94,
+          "n_observaciones": 36
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "CASSABELLA",
+          "wape_pct": 125.95,
+          "sesgo_pct": 118.12,
+          "n_observaciones": 36
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "CASSABELLA",
+          "wape_pct": 102.69,
+          "sesgo_pct": 3.91,
+          "n_observaciones": 36
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "DURATILE",
+          "wape_pct": 87.83,
+          "sesgo_pct": -8.09,
+          "n_observaciones": 1296
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "DURATILE",
+          "wape_pct": 30.86,
+          "sesgo_pct": 2.59,
+          "n_observaciones": 1296
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "familia": "DURATILE",
+          "wape_pct": 33.13,
+          "sesgo_pct": 17.73,
+          "n_observaciones": 1281
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "DURATILE",
+          "wape_pct": 56.14,
+          "sesgo_pct": 20.45,
+          "n_observaciones": 1296
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "DURATILE",
+          "wape_pct": 71.47,
+          "sesgo_pct": -13.69,
+          "n_observaciones": 1296
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "MERCANTIL",
+          "wape_pct": 155.41,
+          "sesgo_pct": 136.42,
+          "n_observaciones": 30
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "MERCANTIL",
+          "wape_pct": 113.27,
+          "sesgo_pct": 92.25,
+          "n_observaciones": 30
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "familia": "MERCANTIL",
+          "wape_pct": 109.32,
+          "sesgo_pct": 34.78,
+          "n_observaciones": 18
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "MERCANTIL",
+          "wape_pct": 308.29,
+          "sesgo_pct": 304.66,
+          "n_observaciones": 30
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "MERCANTIL",
+          "wape_pct": 146.83,
+          "sesgo_pct": 112.76,
+          "n_observaciones": 30
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "PORCELANITE",
+          "wape_pct": 36.28,
+          "sesgo_pct": 5.04,
+          "n_observaciones": 9180
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "PORCELANITE",
+          "wape_pct": 24.02,
+          "sesgo_pct": 4.31,
+          "n_observaciones": 9180
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "familia": "PORCELANITE",
+          "wape_pct": 31.38,
+          "sesgo_pct": 9.81,
+          "n_observaciones": 9063
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "PORCELANITE",
+          "wape_pct": 44.96,
+          "sesgo_pct": 18.81,
+          "n_observaciones": 9180
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "PORCELANITE",
+          "wape_pct": 31.41,
+          "sesgo_pct": -4.28,
+          "n_observaciones": 9180
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "QUALITY",
+          "wape_pct": 159.63,
+          "sesgo_pct": 148.68,
+          "n_observaciones": 108
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "QUALITY",
+          "wape_pct": 79.55,
+          "sesgo_pct": 60.71,
+          "n_observaciones": 108
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "familia": "QUALITY",
+          "wape_pct": 82.13,
+          "sesgo_pct": 48.06,
+          "n_observaciones": 102
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "QUALITY",
+          "wape_pct": 153.39,
+          "sesgo_pct": 152.83,
+          "n_observaciones": 108
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "QUALITY",
+          "wape_pct": 121.57,
+          "sesgo_pct": 103.94,
+          "n_observaciones": 108
+        }
+      ],
+      "resumen_exclusiones": {
+        "total_registros": 53460,
+        "excluidos_censura": 0,
+        "excluidos_sin_prediccion": 360,
+        "usados": 53100
+      }
+    },
+    "sucursal": {
+      "global": [
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "horizonte": 1,
+          "wape_pct": 85.85,
+          "sesgo_pct": 2.1,
+          "n_observaciones": 232329
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "horizonte": 1,
+          "wape_pct": 77.19,
+          "sesgo_pct": 2.01,
+          "n_observaciones": 232329
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "horizonte": 1,
+          "wape_pct": 80.35,
+          "sesgo_pct": -3.65,
+          "n_observaciones": 166944
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "horizonte": 1,
+          "wape_pct": 136.66,
+          "sesgo_pct": 47.74,
+          "n_observaciones": 232329
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "horizonte": 1,
+          "wape_pct": 75.43,
+          "sesgo_pct": -4.32,
+          "n_observaciones": 232329
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "horizonte": 2,
+          "wape_pct": 87.86,
+          "sesgo_pct": 2.61,
+          "n_observaciones": 232329
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "horizonte": 2,
+          "wape_pct": 78.39,
+          "sesgo_pct": 2.78,
+          "n_observaciones": 232329
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "horizonte": 2,
+          "wape_pct": 84.54,
+          "sesgo_pct": -0.89,
+          "n_observaciones": 166944
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "horizonte": 2,
+          "wape_pct": 160.61,
+          "sesgo_pct": 71.53,
+          "n_observaciones": 232329
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "horizonte": 2,
+          "wape_pct": 76.45,
+          "sesgo_pct": -3.6,
+          "n_observaciones": 232329
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "horizonte": 3,
+          "wape_pct": 90.69,
+          "sesgo_pct": 4.59,
+          "n_observaciones": 232329
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "horizonte": 3,
+          "wape_pct": 80.13,
+          "sesgo_pct": 4.48,
+          "n_observaciones": 232329
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "horizonte": 3,
+          "wape_pct": 89.1,
+          "sesgo_pct": 2.94,
+          "n_observaciones": 166944
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "horizonte": 3,
+          "wape_pct": 187.12,
+          "sesgo_pct": 98.21,
+          "n_observaciones": 232329
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "horizonte": 3,
+          "wape_pct": 78.07,
+          "sesgo_pct": -2.0,
+          "n_observaciones": 232329
+        }
+      ],
+      "por_abc": [
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "horizonte": 1,
+          "abc": "A",
+          "wape_pct": 85.59,
+          "sesgo_pct": 1.85,
+          "n_observaciones": 217936
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "horizonte": 1,
+          "abc": "A",
+          "wape_pct": 76.76,
+          "sesgo_pct": 1.87,
+          "n_observaciones": 217936
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "horizonte": 1,
+          "abc": "A",
+          "wape_pct": 80.15,
+          "sesgo_pct": -3.62,
+          "n_observaciones": 159446
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "horizonte": 1,
+          "abc": "A",
+          "wape_pct": 135.17,
+          "sesgo_pct": 46.43,
+          "n_observaciones": 217936
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "horizonte": 1,
+          "abc": "A",
+          "wape_pct": 74.83,
+          "sesgo_pct": -4.68,
+          "n_observaciones": 217936
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "horizonte": 1,
+          "abc": "B",
+          "wape_pct": 91.83,
+          "sesgo_pct": 7.85,
+          "n_observaciones": 13116
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "horizonte": 1,
+          "abc": "B",
+          "wape_pct": 87.17,
+          "sesgo_pct": 5.04,
+          "n_observaciones": 13116
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "horizonte": 1,
+          "abc": "B",
+          "wape_pct": 87.98,
+          "sesgo_pct": -4.97,
+          "n_observaciones": 6991
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "horizonte": 1,
+          "abc": "B",
+          "wape_pct": 171.94,
+          "sesgo_pct": 79.64,
+          "n_observaciones": 13116
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "horizonte": 1,
+          "abc": "B",
+          "wape_pct": 88.73,
+          "sesgo_pct": 3.56,
+          "n_observaciones": 13116
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "horizonte": 1,
+          "abc": "C",
+          "wape_pct": 91.81,
+          "sesgo_pct": 9.01,
+          "n_observaciones": 1277
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "horizonte": 1,
+          "abc": "C",
+          "wape_pct": 90.31,
+          "sesgo_pct": 7.93,
+          "n_observaciones": 1277
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "horizonte": 1,
+          "abc": "C",
+          "wape_pct": 90.28,
+          "sesgo_pct": -2.89,
+          "n_observaciones": 507
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "horizonte": 1,
+          "abc": "C",
+          "wape_pct": 168.78,
+          "sesgo_pct": 66.46,
+          "n_observaciones": 1277
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "horizonte": 1,
+          "abc": "C",
+          "wape_pct": 99.17,
+          "sesgo_pct": 12.51,
+          "n_observaciones": 1277
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "horizonte": 2,
+          "abc": "A",
+          "wape_pct": 87.54,
+          "sesgo_pct": 2.27,
+          "n_observaciones": 217936
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "horizonte": 2,
+          "abc": "A",
+          "wape_pct": 77.92,
+          "sesgo_pct": 2.57,
+          "n_observaciones": 217936
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "horizonte": 2,
+          "abc": "A",
+          "wape_pct": 84.3,
+          "sesgo_pct": -0.92,
+          "n_observaciones": 159446
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "horizonte": 2,
+          "abc": "A",
+          "wape_pct": 158.23,
+          "sesgo_pct": 69.35,
+          "n_observaciones": 217936
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "horizonte": 2,
+          "abc": "A",
+          "wape_pct": 75.8,
+          "sesgo_pct": -4.03,
+          "n_observaciones": 217936
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "horizonte": 2,
+          "abc": "B",
+          "wape_pct": 95.44,
+          "sesgo_pct": 10.93,
+          "n_observaciones": 13116
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "horizonte": 2,
+          "abc": "B",
+          "wape_pct": 89.44,
+          "sesgo_pct": 7.83,
+          "n_observaciones": 13116
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "horizonte": 2,
+          "abc": "B",
+          "wape_pct": 94.14,
+          "sesgo_pct": -0.09,
+          "n_observaciones": 6991
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "horizonte": 2,
+          "abc": "B",
+          "wape_pct": 218.15,
+          "sesgo_pct": 125.35,
+          "n_observaciones": 13116
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "horizonte": 2,
+          "abc": "B",
+          "wape_pct": 91.4,
+          "sesgo_pct": 6.31,
+          "n_observaciones": 13116
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "horizonte": 2,
+          "abc": "C",
+          "wape_pct": 96.02,
+          "sesgo_pct": 9.02,
+          "n_observaciones": 1277
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "horizonte": 2,
+          "abc": "C",
+          "wape_pct": 91.99,
+          "sesgo_pct": 6.73,
+          "n_observaciones": 1277
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "horizonte": 2,
+          "abc": "C",
+          "wape_pct": 99.24,
+          "sesgo_pct": 5.87,
+          "n_observaciones": 507
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "horizonte": 2,
+          "abc": "C",
+          "wape_pct": 211.49,
+          "sesgo_pct": 104.8,
+          "n_observaciones": 1277
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "horizonte": 2,
+          "abc": "C",
+          "wape_pct": 98.93,
+          "sesgo_pct": 11.24,
+          "n_observaciones": 1277
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "horizonte": 3,
+          "abc": "A",
+          "wape_pct": 90.26,
+          "sesgo_pct": 4.09,
+          "n_observaciones": 217936
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "horizonte": 3,
+          "abc": "A",
+          "wape_pct": 79.59,
+          "sesgo_pct": 4.14,
+          "n_observaciones": 217936
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "horizonte": 3,
+          "abc": "A",
+          "wape_pct": 88.79,
+          "sesgo_pct": 2.85,
+          "n_observaciones": 159446
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "horizonte": 3,
+          "abc": "A",
+          "wape_pct": 183.6,
+          "sesgo_pct": 94.94,
+          "n_observaciones": 217936
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "horizonte": 3,
+          "abc": "A",
+          "wape_pct": 77.34,
+          "sesgo_pct": -2.56,
+          "n_observaciones": 217936
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "horizonte": 3,
+          "abc": "B",
+          "wape_pct": 101.66,
+          "sesgo_pct": 16.87,
+          "n_observaciones": 13116
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "horizonte": 3,
+          "abc": "B",
+          "wape_pct": 93.68,
+          "sesgo_pct": 12.86,
+          "n_observaciones": 13116
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "horizonte": 3,
+          "abc": "B",
+          "wape_pct": 101.69,
+          "sesgo_pct": 6.49,
+          "n_observaciones": 6991
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "horizonte": 3,
+          "abc": "B",
+          "wape_pct": 274.78,
+          "sesgo_pct": 180.49,
+          "n_observaciones": 13116
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "horizonte": 3,
+          "abc": "B",
+          "wape_pct": 95.67,
+          "sesgo_pct": 11.26,
+          "n_observaciones": 13116
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "horizonte": 3,
+          "abc": "C",
+          "wape_pct": 98.2,
+          "sesgo_pct": 18.16,
+          "n_observaciones": 1277
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "horizonte": 3,
+          "abc": "C",
+          "wape_pct": 92.23,
+          "sesgo_pct": 15.95,
+          "n_observaciones": 1277
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "horizonte": 3,
+          "abc": "C",
+          "wape_pct": 104.65,
+          "sesgo_pct": 15.68,
+          "n_observaciones": 507
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "horizonte": 3,
+          "abc": "C",
+          "wape_pct": 270.52,
+          "sesgo_pct": 166.94,
+          "n_observaciones": 1277
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "horizonte": 3,
+          "abc": "C",
+          "wape_pct": 101.97,
+          "sesgo_pct": 20.85,
+          "n_observaciones": 1277
+        }
+      ],
+      "por_familia": [
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "ALAPLANA",
+          "wape_pct": 97.75,
+          "sesgo_pct": 12.27,
+          "n_observaciones": 972
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "ALAPLANA",
+          "wape_pct": 99.14,
+          "sesgo_pct": 17.94,
+          "n_observaciones": 972
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "familia": "ALAPLANA",
+          "wape_pct": 96.88,
+          "sesgo_pct": 1.75,
+          "n_observaciones": 561
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "ALAPLANA",
+          "wape_pct": 195.71,
+          "sesgo_pct": 99.22,
+          "n_observaciones": 972
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "ALAPLANA",
+          "wape_pct": 92.73,
+          "sesgo_pct": 4.08,
+          "n_observaciones": 972
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "AZUVI",
+          "wape_pct": 90.87,
+          "sesgo_pct": 47.96,
+          "n_observaciones": 21
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "AZUVI",
+          "wape_pct": 93.95,
+          "sesgo_pct": 44.88,
+          "n_observaciones": 21
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "familia": "AZUVI",
+          "wape_pct": 70.2,
+          "sesgo_pct": -47.58,
+          "n_observaciones": 9
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "AZUVI",
+          "wape_pct": 79.49,
+          "sesgo_pct": -66.42,
+          "n_observaciones": 21
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "AZUVI",
+          "wape_pct": 70.6,
+          "sesgo_pct": 43.56,
+          "n_observaciones": 21
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "BALDO",
+          "wape_pct": 96.09,
+          "sesgo_pct": -7.21,
+          "n_observaciones": 81
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "BALDO",
+          "wape_pct": 93.37,
+          "sesgo_pct": -15.37,
+          "n_observaciones": 81
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "familia": "BALDO",
+          "wape_pct": 106.79,
+          "sesgo_pct": 9.08,
+          "n_observaciones": 30
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "BALDO",
+          "wape_pct": 237.82,
+          "sesgo_pct": 164.88,
+          "n_observaciones": 81
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "BALDO",
+          "wape_pct": 113.15,
+          "sesgo_pct": -5.05,
+          "n_observaciones": 81
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "CASSABELLA",
+          "wape_pct": 104.67,
+          "sesgo_pct": 5.26,
+          "n_observaciones": 1719
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "CASSABELLA",
+          "wape_pct": 101.45,
+          "sesgo_pct": 2.73,
+          "n_observaciones": 1719
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "familia": "CASSABELLA",
+          "wape_pct": 100.5,
+          "sesgo_pct": -26.59,
+          "n_observaciones": 660
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "CASSABELLA",
+          "wape_pct": 371.52,
+          "sesgo_pct": 282.76,
+          "n_observaciones": 1719
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "CASSABELLA",
+          "wape_pct": 93.2,
+          "sesgo_pct": -1.37,
+          "n_observaciones": 1719
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "CRISTAL",
+          "wape_pct": 83.19,
+          "sesgo_pct": -6.76,
+          "n_observaciones": 612
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "CRISTAL",
+          "wape_pct": 80.43,
+          "sesgo_pct": -4.33,
+          "n_observaciones": 612
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "familia": "CRISTAL",
+          "wape_pct": 102.2,
+          "sesgo_pct": 21.34,
+          "n_observaciones": 348
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "CRISTAL",
+          "wape_pct": 137.43,
+          "sesgo_pct": 28.03,
+          "n_observaciones": 612
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "CRISTAL",
+          "wape_pct": 77.87,
+          "sesgo_pct": -17.0,
+          "n_observaciones": 612
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "DURATILE",
+          "wape_pct": 79.88,
+          "sesgo_pct": -13.58,
+          "n_observaciones": 60345
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "DURATILE",
+          "wape_pct": 72.23,
+          "sesgo_pct": -1.85,
+          "n_observaciones": 60345
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "familia": "DURATILE",
+          "wape_pct": 76.97,
+          "sesgo_pct": -1.83,
+          "n_observaciones": 41532
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "DURATILE",
+          "wape_pct": 138.21,
+          "sesgo_pct": 49.18,
+          "n_observaciones": 60345
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "DURATILE",
+          "wape_pct": 72.05,
+          "sesgo_pct": -17.19,
+          "n_observaciones": 60345
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "FIREN",
+          "wape_pct": 94.94,
+          "sesgo_pct": -9.62,
+          "n_observaciones": 756
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "FIREN",
+          "wape_pct": 95.58,
+          "sesgo_pct": -6.6,
+          "n_observaciones": 756
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "familia": "FIREN",
+          "wape_pct": 84.44,
+          "sesgo_pct": -25.27,
+          "n_observaciones": 273
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "FIREN",
+          "wape_pct": 228.21,
+          "sesgo_pct": 117.82,
+          "n_observaciones": 756
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "FIREN",
+          "wape_pct": 92.72,
+          "sesgo_pct": -15.72,
+          "n_observaciones": 756
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "GAYAF",
+          "wape_pct": 101.32,
+          "sesgo_pct": 11.09,
+          "n_observaciones": 5718
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "GAYAF",
+          "wape_pct": 88.56,
+          "sesgo_pct": 4.47,
+          "n_observaciones": 5718
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "familia": "GAYAF",
+          "wape_pct": 93.22,
+          "sesgo_pct": -6.83,
+          "n_observaciones": 4350
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "GAYAF",
+          "wape_pct": 198.18,
+          "sesgo_pct": 103.89,
+          "n_observaciones": 5718
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "GAYAF",
+          "wape_pct": 85.52,
+          "sesgo_pct": 4.01,
+          "n_observaciones": 5718
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "GREDA",
+          "wape_pct": 191.33,
+          "sesgo_pct": 147.75,
+          "n_observaciones": 6
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "GREDA",
+          "wape_pct": 189.53,
+          "sesgo_pct": 145.95,
+          "n_observaciones": 6
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "GREDA",
+          "wape_pct": 134.72,
+          "sesgo_pct": 56.34,
+          "n_observaciones": 6
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "GREDA",
+          "wape_pct": 189.48,
+          "sesgo_pct": 151.62,
+          "n_observaciones": 6
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "LAMOR",
+          "wape_pct": 98.97,
+          "sesgo_pct": 10.59,
+          "n_observaciones": 2841
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "LAMOR",
+          "wape_pct": 92.6,
+          "sesgo_pct": 9.3,
+          "n_observaciones": 2841
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "familia": "LAMOR",
+          "wape_pct": 98.62,
+          "sesgo_pct": 0.89,
+          "n_observaciones": 1248
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "LAMOR",
+          "wape_pct": 309.36,
+          "sesgo_pct": 223.12,
+          "n_observaciones": 2841
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "LAMOR",
+          "wape_pct": 96.05,
+          "sesgo_pct": 8.07,
+          "n_observaciones": 2841
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "LETSA",
+          "wape_pct": 83.39,
+          "sesgo_pct": -45.11,
+          "n_observaciones": 24
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "LETSA",
+          "wape_pct": 83.72,
+          "sesgo_pct": -47.38,
+          "n_observaciones": 24
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "familia": "LETSA",
+          "wape_pct": 90.63,
+          "sesgo_pct": -85.1,
+          "n_observaciones": 3
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "LETSA",
+          "wape_pct": 259.17,
+          "sesgo_pct": 103.1,
+          "n_observaciones": 24
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "LETSA",
+          "wape_pct": 82.04,
+          "sesgo_pct": -60.74,
+          "n_observaciones": 24
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "MERCANTIL",
+          "wape_pct": 97.29,
+          "sesgo_pct": 20.53,
+          "n_observaciones": 477
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "MERCANTIL",
+          "wape_pct": 95.87,
+          "sesgo_pct": 19.39,
+          "n_observaciones": 477
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "familia": "MERCANTIL",
+          "wape_pct": 106.19,
+          "sesgo_pct": 17.19,
+          "n_observaciones": 81
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "MERCANTIL",
+          "wape_pct": 222.63,
+          "sesgo_pct": 141.22,
+          "n_observaciones": 477
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "MERCANTIL",
+          "wape_pct": 96.58,
+          "sesgo_pct": -0.32,
+          "n_observaciones": 477
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "NEW TILE",
+          "wape_pct": 83.65,
+          "sesgo_pct": -38.22,
+          "n_observaciones": 9
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "NEW TILE",
+          "wape_pct": 83.65,
+          "sesgo_pct": -38.22,
+          "n_observaciones": 9
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "NEW TILE",
+          "wape_pct": 95.97,
+          "sesgo_pct": -95.97,
+          "n_observaciones": 9
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "NEW TILE",
+          "wape_pct": 84.11,
+          "sesgo_pct": -13.74,
+          "n_observaciones": 9
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "NEXO",
+          "wape_pct": 92.08,
+          "sesgo_pct": 2.43,
+          "n_observaciones": 2892
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "NEXO",
+          "wape_pct": 80.65,
+          "sesgo_pct": -2.15,
+          "n_observaciones": 2892
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "familia": "NEXO",
+          "wape_pct": 83.51,
+          "sesgo_pct": -9.14,
+          "n_observaciones": 1863
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "NEXO",
+          "wape_pct": 188.46,
+          "sesgo_pct": 84.06,
+          "n_observaciones": 2892
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "NEXO",
+          "wape_pct": 99.58,
+          "sesgo_pct": 14.78,
+          "n_observaciones": 2892
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "PERON",
+          "wape_pct": 113.49,
+          "sesgo_pct": -18.88,
+          "n_observaciones": 21
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "PERON",
+          "wape_pct": 107.37,
+          "sesgo_pct": -14.21,
+          "n_observaciones": 21
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "familia": "PERON",
+          "wape_pct": 84.36,
+          "sesgo_pct": -20.45,
+          "n_observaciones": 9
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "PERON",
+          "wape_pct": 100.0,
+          "sesgo_pct": -100.0,
+          "n_observaciones": 21
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "PERON",
+          "wape_pct": 163.51,
+          "sesgo_pct": 104.29,
+          "n_observaciones": 21
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "PORCELANATO",
+          "wape_pct": 98.52,
+          "sesgo_pct": -8.11,
+          "n_observaciones": 759
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "PORCELANATO",
+          "wape_pct": 99.22,
+          "sesgo_pct": -5.77,
+          "n_observaciones": 759
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "familia": "PORCELANATO",
+          "wape_pct": 124.78,
+          "sesgo_pct": -0.94,
+          "n_observaciones": 156
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "PORCELANATO",
+          "wape_pct": 245.53,
+          "sesgo_pct": 121.3,
+          "n_observaciones": 759
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "PORCELANATO",
+          "wape_pct": 105.99,
+          "sesgo_pct": 2.32,
+          "n_observaciones": 759
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "PORCELANITE",
+          "wape_pct": 88.7,
+          "sesgo_pct": 4.82,
+          "n_observaciones": 607122
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "PORCELANITE",
+          "wape_pct": 78.78,
+          "sesgo_pct": 3.49,
+          "n_observaciones": 607122
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "familia": "PORCELANITE",
+          "wape_pct": 85.26,
+          "sesgo_pct": -0.3,
+          "n_observaciones": 443946
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "PORCELANITE",
+          "wape_pct": 161.26,
+          "sesgo_pct": 72.62,
+          "n_observaciones": 607122
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "PORCELANITE",
+          "wape_pct": 76.55,
+          "sesgo_pct": -2.06,
+          "n_observaciones": 607122
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "QUALITY",
+          "wape_pct": 102.51,
+          "sesgo_pct": 17.98,
+          "n_observaciones": 12594
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "QUALITY",
+          "wape_pct": 98.16,
+          "sesgo_pct": 14.36,
+          "n_observaciones": 12594
+        },
+        {
+          "algoritmo": "A3_tendencia_estacional",
+          "familia": "QUALITY",
+          "wape_pct": 98.67,
+          "sesgo_pct": -4.03,
+          "n_observaciones": 5763
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "QUALITY",
+          "wape_pct": 238.36,
+          "sesgo_pct": 137.1,
+          "n_observaciones": 12594
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "QUALITY",
+          "wape_pct": 99.19,
+          "sesgo_pct": 16.09,
+          "n_observaciones": 12594
+        },
+        {
+          "algoritmo": "A1_seasonal_naive",
+          "familia": "TENDENZZA",
+          "wape_pct": 125.47,
+          "sesgo_pct": 76.41,
+          "n_observaciones": 18
+        },
+        {
+          "algoritmo": "A2_media_movil_3m",
+          "familia": "TENDENZZA",
+          "wape_pct": 125.47,
+          "sesgo_pct": 76.41,
+          "n_observaciones": 18
+        },
+        {
+          "algoritmo": "A4_holt_winters",
+          "familia": "TENDENZZA",
+          "wape_pct": 143.76,
+          "sesgo_pct": -7.75,
+          "n_observaciones": 18
+        },
+        {
+          "algoritmo": "A5_croston_sba",
+          "familia": "TENDENZZA",
+          "wape_pct": 198.68,
+          "sesgo_pct": 156.76,
+          "n_observaciones": 18
+        }
+      ],
+      "resumen_exclusiones": {
+        "total_registros": 3991665,
+        "excluidos_censura": 0,
+        "excluidos_sin_prediccion": 702885,
+        "usados": 3288780
+      }
+    }
+  },
+  "servicio": {
+    "baseline": "A2_media_movil_3m",
+    "series_simuladas": 29011,
+    "por_algoritmo": {
+      "A1_seasonal_naive": {
+        "quiebres": 38468,
+        "meses_simulados": 266111,
+        "pedidos_totales_cajas": 8161630.0,
+        "tasa_quiebre_pct": 14.46,
+        "quiebres_vs_baseline": 1499
+      },
+      "A2_media_movil_3m": {
+        "quiebres": 36969,
+        "meses_simulados": 266111,
+        "pedidos_totales_cajas": 7927712.0,
+        "tasa_quiebre_pct": 13.89,
+        "quiebres_vs_baseline": 0
+      },
+      "A3_tendencia_estacional": {
+        "quiebres": 43697,
+        "meses_simulados": 266111,
+        "pedidos_totales_cajas": 7733376.0,
+        "tasa_quiebre_pct": 16.42,
+        "quiebres_vs_baseline": 6728
+      },
+      "A4_holt_winters": {
+        "quiebres": 51760,
+        "meses_simulados": 266111,
+        "pedidos_totales_cajas": 8486006.0,
+        "tasa_quiebre_pct": 19.45,
+        "quiebres_vs_baseline": 14791
+      },
+      "A5_croston_sba": {
+        "quiebres": 42553,
+        "meses_simulados": 266111,
+        "pedidos_totales_cajas": 7443854.0,
+        "tasa_quiebre_pct": 15.99,
+        "quiebres_vs_baseline": 5584
+      }
+    }
+  },
+  "estacionalidad_por_familia": {
+    "ALAPLANA": {
+      "nivel_medio_m2": 2621.5,
+      "mes_pico": "11",
+      "efecto_pico_pct": 27.3,
+      "mes_valle": "12",
+      "efecto_valle_pct": -32.0,
+      "swing_pct": 59.3,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "creciente"
+    },
+    "APE": {
+      "nivel_medio_m2": 149.0,
+      "mes_pico": "9",
+      "efecto_pico_pct": 72.7,
+      "mes_valle": "8",
+      "efecto_valle_pct": -52.6,
+      "swing_pct": 125.2,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "decreciente"
+    },
+    "AZUVI": {
+      "nivel_medio_m2": 360.4,
+      "mes_pico": "11",
+      "efecto_pico_pct": 108.6,
+      "mes_valle": "12",
+      "efecto_valle_pct": -44.6,
+      "swing_pct": 153.1,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "estable"
+    },
+    "BALDO": {
+      "nivel_medio_m2": 1111.3,
+      "mes_pico": "9",
+      "efecto_pico_pct": 44.0,
+      "mes_valle": "4",
+      "efecto_valle_pct": -40.3,
+      "swing_pct": 84.3,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "creciente"
+    },
+    "CASSABELLA": {
+      "nivel_medio_m2": 4593.5,
+      "mes_pico": "8",
+      "efecto_pico_pct": 190.2,
+      "mes_valle": "12",
+      "efecto_valle_pct": -71.1,
+      "swing_pct": 261.2,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "decreciente"
+    },
+    "CRISTAL": {
+      "nivel_medio_m2": 1389.2,
+      "mes_pico": "11",
+      "efecto_pico_pct": 52.1,
+      "mes_valle": "2",
+      "efecto_valle_pct": -20.4,
+      "swing_pct": 72.5,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "creciente"
+    },
+    "DURATILE": {
+      "nivel_medio_m2": 114346.9,
+      "mes_pico": "11",
+      "efecto_pico_pct": 13.1,
+      "mes_valle": "9",
+      "efecto_valle_pct": -14.4,
+      "swing_pct": 27.5,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "decreciente"
+    },
+    "EVERS": {
+      "nivel_medio_m2": 1.3,
+      "mes_pico": "5",
+      "efecto_pico_pct": 683.6,
+      "mes_valle": "7",
+      "efecto_valle_pct": -198.9,
+      "swing_pct": 882.5,
+      "significativa": true,
+      "volumen_robusto": false,
+      "tendencia": "estable"
+    },
+    "FIREN": {
+      "nivel_medio_m2": 6715.4,
+      "mes_pico": "11",
+      "efecto_pico_pct": 75.2,
+      "mes_valle": "8",
+      "efecto_valle_pct": -42.4,
+      "swing_pct": 117.7,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "creciente"
+    },
+    "GAYAF": {
+      "nivel_medio_m2": 8489.1,
+      "mes_pico": "11",
+      "efecto_pico_pct": 26.6,
+      "mes_valle": "8",
+      "efecto_valle_pct": -19.1,
+      "swing_pct": 45.6,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "estable"
+    },
+    "GREDA": {
+      "nivel_medio_m2": 874.3,
+      "mes_pico": "9",
+      "efecto_pico_pct": 103.5,
+      "mes_valle": "12",
+      "efecto_valle_pct": -63.2,
+      "swing_pct": 166.7,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "decreciente"
+    },
+    "ISTONE": {
+      "nivel_medio_m2": 125.7,
+      "mes_pico": "10",
+      "efecto_pico_pct": 75.7,
+      "mes_valle": "1",
+      "efecto_valle_pct": -37.5,
+      "swing_pct": 113.1,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "estable"
+    },
+    "LAMOR": {
+      "nivel_medio_m2": 8960.2,
+      "mes_pico": "11",
+      "efecto_pico_pct": 35.2,
+      "mes_valle": "5",
+      "efecto_valle_pct": -17.0,
+      "swing_pct": 52.3,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "decreciente"
+    },
+    "LETSA": {
+      "nivel_medio_m2": 297.2,
+      "mes_pico": "11",
+      "efecto_pico_pct": 79.4,
+      "mes_valle": "5",
+      "efecto_valle_pct": -51.5,
+      "swing_pct": 130.8,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "creciente"
+    },
+    "MERCANTIL": {
+      "nivel_medio_m2": 2296.4,
+      "mes_pico": "8",
+      "efecto_pico_pct": 294.8,
+      "mes_valle": "4",
+      "efecto_valle_pct": -86.3,
+      "swing_pct": 381.0,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "estable"
+    },
+    "NEW TILE": {
+      "nivel_medio_m2": 224.3,
+      "mes_pico": "2",
+      "efecto_pico_pct": 68.1,
+      "mes_valle": "10",
+      "efecto_valle_pct": -43.5,
+      "swing_pct": 111.5,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "creciente"
+    },
+    "NEXO": {
+      "nivel_medio_m2": 3659.8,
+      "mes_pico": "6",
+      "efecto_pico_pct": 42.7,
+      "mes_valle": "12",
+      "efecto_valle_pct": -56.6,
+      "swing_pct": 99.3,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "decreciente"
+    },
+    "NIRO": {
+      "nivel_medio_m2": 12.7,
+      "mes_pico": "3",
+      "efecto_pico_pct": 195.5,
+      "mes_valle": "4",
+      "efecto_valle_pct": -52.6,
+      "swing_pct": 248.1,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "estable"
+    },
+    "OBSOLETOS": {
+      "nivel_medio_m2": 11.1,
+      "mes_pico": "11",
+      "efecto_pico_pct": 620.0,
+      "mes_valle": "7",
+      "efecto_valle_pct": -123.6,
+      "swing_pct": 743.6,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "estable"
+    },
+    "PERON": {
+      "nivel_medio_m2": 353.4,
+      "mes_pico": "11",
+      "efecto_pico_pct": 71.6,
+      "mes_valle": "4",
+      "efecto_valle_pct": -36.8,
+      "swing_pct": 108.4,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "decreciente"
+    },
+    "PORCELANATO": {
+      "nivel_medio_m2": 7875.0,
+      "mes_pico": "6",
+      "efecto_pico_pct": 67.9,
+      "mes_valle": "2",
+      "efecto_valle_pct": -36.8,
+      "swing_pct": 104.7,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "creciente"
+    },
+    "PORCELANITE": {
+      "nivel_medio_m2": 1071457.1,
+      "mes_pico": "7",
+      "efecto_pico_pct": 10.9,
+      "mes_valle": "12",
+      "efecto_valle_pct": -6.1,
+      "swing_pct": 17.0,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "estable"
+    },
+    "PSTONE": {
+      "nivel_medio_m2": 463.1,
+      "mes_pico": "10",
+      "efecto_pico_pct": 32.9,
+      "mes_valle": "4",
+      "efecto_valle_pct": -23.5,
+      "swing_pct": 56.4,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "estable"
+    },
+    "QUALITY": {
+      "nivel_medio_m2": 25273.9,
+      "mes_pico": "7",
+      "efecto_pico_pct": 28.9,
+      "mes_valle": "12",
+      "efecto_valle_pct": -36.9,
+      "swing_pct": 65.8,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "decreciente"
+    },
+    "TENDENZZA": {
+      "nivel_medio_m2": 1172.2,
+      "mes_pico": "5",
+      "efecto_pico_pct": 157.7,
+      "mes_valle": "8",
+      "efecto_valle_pct": -100.0,
+      "swing_pct": 257.7,
+      "significativa": true,
+      "volumen_robusto": true,
+      "tendencia": "creciente"
+    }
+  },
+  "estacionalidad_familias_total_universo": 125,
+  "estacionalidad_familias_sin_historia_suficiente": [
+    "ADELF",
+    "ADESI",
+    "AMBIA",
+    "AQUAF",
+    "ARESC",
+    "ARGCER",
+    "ARQUICERAMICA",
+    "ARREDI",
+    "ARZATE",
+    "ASGROHE",
+    "ASTANDAR",
+    "AXCENT",
+    "AXOR",
+    "BEMIS",
+    "CALOR",
+    "CELITE",
+    "CERAMOSA",
+    "CERPA",
+    "CHUDEJ",
+    "CIFRE",
+    "COCEM",
+    "CODIC",
+    "CORONA",
+    "CORTAG",
+    "CREST",
+    "C_DEKOS",
+    "C_DEKOSB",
+    "C_DEKOSPA",
+    "C_DUNE",
+    "C_DUNEA",
+    "C_DUNECFA",
+    "C_DUNED",
+    "C_DUNEE",
+    "C_DUNEM",
+    "C_DUNEP",
+    "C_PORCC",
+    "C_PORCD",
+    "C_PORCZ",
+    "C_ZOCLO",
+    "DECORE",
+    "DICA",
+    "DINAS",
+    "DOSCIEN",
+    "DUALGRES",
+    "DUVIT",
+    "ECCELLENZA",
+    "ENGINEERING",
+    "EVOLUX",
+    "EXEL",
+    "FILA",
+    "FORMA",
+    "FOSHAN",
+    "FRAZZY",
+    "GAMA",
+    "GERMA",
+    "GROHE",
+    "HALCO",
+    "ICRCO",
+    "ILLUX",
+    "INDUC",
+    "IZUZZ",
+    "JAGER",
+    "KITRA",
+    "KOLA",
+    "LIBRA",
+    "MAGAM",
+    "METROCITY",
+    "MOLDU",
+    "NAVAR",
+    "NEXT",
+    "NOKEN",
+    "NOVA",
+    "PERDU",
+    "PORSA",
+    "PRISM",
+    "QUARD",
+    "REDTOOLS",
+    "RHEEM",
+    "ROTOPLAS",
+    "ROYOE",
+    "RUBI",
+    "RUGO",
+    "RUPER",
+    "SANTA",
+    "SAYER",
+    "SCHNEIDER",
+    "SMART ECO",
+    "STAR",
+    "STN",
+    "STONA",
+    "SYSPO",
+    "TAYG",
+    "TECNA",
+    "TECNOLITE",
+    "UNIBLOCK",
+    "URREA",
+    "VALEN",
+    "VARIO",
+    "VELVET",
+    "VENCA"
+  ]
+}
