@@ -10,6 +10,7 @@ costo-beneficio (costo de traslado vs. costo evitado de comprar).
 
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -24,6 +25,16 @@ router = APIRouter(prefix="/api/balanceos", tags=["engines:balanceos"])
 MESES_DEMANDA = 3
 DEFAULT_OBJETIVO_MESES = 2.0
 COSTO_CAJA_TRASLADO_DEFAULT = 20.0
+
+# Cache en memoria del cómputo completo (todas las propuestas, sin filtro de
+# corredor ni límite). El cálculo es CPU-bound (loops en Python sobre miles
+# de renglones) y bajo concurrencia varias requests se serializan por el GIL
+# -> se vio en vivo (T4, 23-ago) tomar 30+ segundos con solo 6 requests
+# concurrentes. El dataset de la demo es estático ("congelado", ver
+# redeploy.sh), así que cachear es seguro: se invalida solo si cambia la
+# tabla editable de costos por corredor (ver put_config).
+_cache_lock = threading.Lock()
+_cache: dict = {"propuestas": None, "costo_por_corredor_snapshot": None}
 
 
 def _now() -> str:
@@ -53,21 +64,9 @@ def init_tables(db: sqlite3.Connection) -> None:
     _ensure_tables(db)
 
 
-@router.get("/propuestas")
-def propuestas_balanceo(
-    corredor: Optional[str] = Query(None),
-    limit: int = Query(25, ge=1, le=100),
-    db: sqlite3.Connection = Depends(get_db),
-):
-    costo_por_corredor = _costo_traslado_por_corredor(db)
-
-    where = ["s.corredor IS NOT NULL"]
-    params: list = []
-    if corredor:
-        where.append("s.corredor = ?")
-        params.append(corredor)
-    where_sql = " AND ".join(where)
-
+def _compute_all_propuestas(db: sqlite3.Connection, costo_por_corredor: dict) -> list[dict]:
+    """Cómputo completo (todos los corredores, sin límite) — CPU-bound,
+    pensado para llamarse una vez y cachearse (ver _cache)."""
     candidatos = db.execute(
         f"""SELECT i.material_id, i.plant, i.disponible, i.transito, i.comprometido,
                    m.descripcion, m.abc, m.m2_por_caja, m.precio_venta, m.costo,
@@ -77,12 +76,11 @@ def propuestas_balanceo(
             JOIN materiales m ON m.material_id = i.material_id
             JOIN sucursales s ON s.plant = i.plant
             LEFT JOIN coberturas_objetivo c ON c.material_id = i.material_id
-            WHERE {where_sql}""",
-        params,
+            WHERE s.corredor IS NOT NULL"""
     ).fetchall()
 
     if not candidatos:
-        return {"total": 0, "items": [], "generado": _now()}
+        return []
 
     material_ids = sorted({r["material_id"] for r in candidatos})
     ph = ",".join("?" * len(material_ids))
@@ -180,12 +178,33 @@ def propuestas_balanceo(
             )
 
     propuestas.sort(key=lambda p: p["ahorroEstimado"], reverse=True)
-    total = len(propuestas)
-    propuestas = propuestas[:limit]
     for i, p in enumerate(propuestas, start=1):
         p["id"] = f"BAL-{i:03d}"
+    return propuestas
 
-    return {"total": total, "items": propuestas, "generado": _now()}
+
+def _get_cached_propuestas(db: sqlite3.Connection) -> list[dict]:
+    costo_por_corredor = _costo_traslado_por_corredor(db)
+    snapshot = tuple(sorted(costo_por_corredor.items()))
+    with _cache_lock:
+        if _cache["propuestas"] is not None and _cache["costo_por_corredor_snapshot"] == snapshot:
+            return _cache["propuestas"]
+    propuestas = _compute_all_propuestas(db, costo_por_corredor)
+    with _cache_lock:
+        _cache["propuestas"] = propuestas
+        _cache["costo_por_corredor_snapshot"] = snapshot
+    return propuestas
+
+
+@router.get("/propuestas")
+def propuestas_balanceo(
+    corredor: Optional[str] = Query(None),
+    limit: int = Query(25, ge=1, le=100),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    todas = _get_cached_propuestas(db)
+    filtradas = [p for p in todas if not corredor or p["corredor"] == corredor]
+    return {"total": len(filtradas), "items": filtradas[:limit], "generado": _now()}
 
 
 @router.get("/config")
