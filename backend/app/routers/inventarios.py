@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 import sqlite3
 
+from app.core.constants import EPS_DEMANDA
 from app.core.db import get_db
 
 router = APIRouter(prefix="/api/inventarios", tags=["inventarios"])
@@ -78,7 +79,7 @@ def list_inventarios(
 #   sin_dato -> sin ventas en los últimos 3 meses (no se puede calcular cobertura)
 # ---------------------------------------------------------------------------
 
-COBERTURA_CTE = """
+COBERTURA_CTE = f"""
     WITH ultimos_meses AS (
         SELECT DISTINCT anio_mes FROM ventas_mensuales ORDER BY anio_mes DESC LIMIT 3
     ),
@@ -101,7 +102,7 @@ COBERTURA_CTE = """
             ROUND(i.disponible + i.transito - i.comprometido, 2) AS disponible_neto,
             ROUND(COALESCE(d.demanda_prom, 0), 2) AS demanda_prom_mensual,
             COALESCE(c.meses_objetivo, 2.0) AS meses_objetivo,
-            CASE WHEN d.demanda_prom > 0
+            CASE WHEN d.demanda_prom >= {EPS_DEMANDA}
                  THEN ROUND((i.disponible + i.transito - i.comprometido) / d.demanda_prom, 2)
                  ELSE NULL END AS cobertura_meses,
             uv.ultima_venta

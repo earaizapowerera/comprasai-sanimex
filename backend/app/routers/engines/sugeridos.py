@@ -34,6 +34,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 import sqlite3
 
+from app.core.constants import EPS_DEMANDA
 from app.core.db import get_db
 
 router = APIRouter(prefix="/api/engines/sugeridos", tags=["engines:sugeridos"])
@@ -56,10 +57,15 @@ def calc_m2_a_cajas(m2: float, m2_por_caja: Optional[float]) -> float:
     return math.ceil(m2 / m2_por_caja)
 
 
-def calc_cobertura_meses(disponible_neto: float, demanda_mensual: float) -> Optional[float]:
+def calc_cobertura_meses(disponible_neto: float, demanda_mensual: Optional[float]) -> Optional[float]:
     """Cobertura en meses = inventario disponible / demanda mensual promedio.
-    None cuando no hay demanda reciente (no hay base para decidir)."""
-    if demanda_mensual <= 0:
+    None cuando no hay demanda reciente (no hay base para decidir), o cuando
+    la demanda es residual (~1e-15, ruido de origen del dataset REAL CAR):
+    ver EPS_DEMANDA en app.core.constants -- mismo guard que kpis.py (T16,
+    waykee 290112) e inventarios.py/COBERTURA_CTE (T18, waykee 290114). Sin
+    este guard, disponible_neto / demanda_mensual con un denominador ínfimo
+    produce coberturas absurdas (~1e+15 meses)."""
+    if demanda_mensual is None or demanda_mensual < EPS_DEMANDA:
         return None
     return disponible_neto / demanda_mensual
 

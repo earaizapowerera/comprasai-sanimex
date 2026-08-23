@@ -3,19 +3,14 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 import sqlite3
 
+from app.core.constants import EPS_DEMANDA
 from app.core.db import get_db
 
 router = APIRouter(prefix="/api/kpis", tags=["kpis"])
 
-# Umbral mínimo de demanda mensual para considerarla "real" al calcular
-# cobertura_meses. El dataset REAL CAR trae demandas que pueden venir en 0
-# o en valores residuales ~1e-15 (ruido de punto flotante / redondeos de
-# origen); sin este guard, disponible_neto / demanda_prom con un
-# denominador ínfimo produce coberturas absurdas (del orden de 1e+15
-# meses). Por debajo de EPS tratamos la demanda como "sin dato" -> misma
-# semántica que demanda=0 (cobertura_meses=None, igual que en
-# /api/inventarios/cobertura, que el frontend renderiza como "sin_dato"/"—").
-EPS_DEMANDA = 1e-6
+# EPS_DEMANDA vive en app.core.constants (única fuente de verdad, ver T18
+# waykee 290114) -- se reexporta aquí por compatibilidad con quien ya lo
+# importaba desde este módulo (ej. backend/tests/test_kpis.py).
 
 
 def calcular_cobertura_meses(disponible_neto: float, demanda_prom: Optional[float]) -> Optional[float]:
