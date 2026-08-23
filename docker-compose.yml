@@ -1,0 +1,20 @@
+services:
+  comprasai-backend:
+    build: .
+    container_name: comprasai-backend
+    restart: unless-stopped
+    ports:
+      # Puerto interno del host (192.168.10.10) al que nginx hace proxy_pass.
+      # NO exponer directo a internet: pasa siempre por nginx en /comprasAI.
+      - "8010:8000"
+    volumes:
+      # Persiste/permite sustituir el .db (T1 entrega datos reales de SAP aquí
+      # sin rebuild de imagen: basta con reemplazar backend/data/comprasai.db).
+      - ./backend/data:/app/data
+      # Permite actualizar el build del frontend (T5) sin rebuild de imagen.
+      - ./frontend_static:/app/frontend_static
+    environment:
+      - ROOT_PATH=/comprasAI
+      - COMPRASAI_DB_PATH=/app/data/comprasai.db
+      - FRONTEND_STATIC_DIR=/app/frontend_static
+      - AUTO_SEED_IF_MISSING=1
