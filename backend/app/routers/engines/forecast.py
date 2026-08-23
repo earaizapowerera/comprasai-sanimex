@@ -10,10 +10,17 @@ Machine Learning tradicional (capa C2):
   - Descomposición simple tendencia + estacionalidad (OLS + promedio de
     residuales por mes-calendario), implementada con numpy puro — sin
     statsmodels/pandas, para mantener el contenedor Docker ligero.
-  - Detección de picos atípicos con Modified Z-Score (mediana + MAD, RN-14),
-    con fallback a IQR cuando la serie es casi constante (MAD=0). Los picos
-    se MARCAN en la serie devuelta pero se EXCLUYEN del ajuste de tendencia/
-    estacionalidad — no se borran del histórico, solo no contaminan el fit.
+  - Detección de picos atípicos (RN-14) con Modified Z-Score (mediana + MAD)
+    sobre los RESIDUALES de un ajuste de tendencia robusto (Theil-Sen), no
+    sobre los valores crudos (T22 fix — ver `detectar_atipicos`), con
+    fallback a IQR cuando la dispersión de residuales es casi nula (MAD=0).
+    Además, cualquier racha de 2+ meses CONSECUTIVOS marcados en la misma
+    dirección se "rescata" (no se excluye): un pico atípico es por
+    definición una anomalía puntual y transitoria, no un cambio de nivel
+    sostenido (p.ej. una plaza que empieza a vender 100x más y lo
+    mantiene). Los picos que sí quedan se MARCAN en la serie devuelta pero
+    se EXCLUYEN del ajuste de tendencia/estacionalidad — no se borran del
+    histórico, solo no contaminan el fit.
   - Clasificación de tendencia (creciente/estable/decreciente) usando el
     t-stat de la pendiente OLS, y flag `producto_ganador` (RN-16) cuando la
     tendencia es creciente y significativa Y el crecimiento reciente supera
@@ -75,6 +82,9 @@ HORIZONTE_FORECAST = 3           # meses a proyectar hacia adelante
 MESES_BACKTEST = 3               # último trimestre, retenido para el MAPE
 TREND_TSTAT_SIGNIFICATIVO = 2.0  # |t| > 2 ~ p < 0.05 aprox para muestras chicas
 GANADOR_CRECIMIENTO_MIN = 0.10   # RN-16: >=10% crecimiento reciente vs previo
+GANADOR_BASE_MINIMA_M2 = 10.0    # RN-16 (T22): piso de demanda previa -- evita "ganadores"
+                                  # que en realidad son ruido/efecto base pequeña (p.ej. 0.5 -> 5
+                                  # m2/mes ya es +900% y no es una señal comercial real)
 
 _CACHE_GANADORES: dict[str, tuple[float, dict]] = {}
 CACHE_TTL_SEGUNDOS = 600  # 10 min
@@ -84,23 +94,85 @@ CACHE_TTL_SEGUNDOS = 600  # 10 min
 # Funciones puras (sin I/O) — testeables 1:1
 # ---------------------------------------------------------------------------
 
-def detectar_atipicos(valores: np.ndarray) -> np.ndarray:
-    """Modified Z-Score (mediana + MAD). Fallback a IQR si MAD=0 (serie casi
-    constante, donde MAD colapsaría el umbral y marcaría todo como atípico)."""
+def _pendiente_theil_sen(t: np.ndarray, y: np.ndarray) -> float:
+    """Estimador Theil-Sen: mediana de las pendientes de TODOS los pares de
+    puntos. Robusto a atípicos (a diferencia de OLS, que un solo pico puede
+    arrastrar). Con el horizonte de este motor (típicamente <=24 meses) el
+    costo O(n²) de las pendientes por pares es trivial (<=276 pares)."""
+    n = len(t)
+    if n < 2:
+        return 0.0
+    pendientes = [
+        (y[j] - y[i]) / (t[j] - t[i])
+        for i in range(n) for j in range(i + 1, n)
+        if (t[j] - t[i]) > 1e-9
+    ]
+    return float(np.median(pendientes)) if pendientes else 0.0
+
+
+def _descartar_rachas_sostenidas(candidatos: np.ndarray, residuales: np.ndarray) -> np.ndarray:
+    """Un PICO atípico (RN-14) es por definición una anomalía puntual y
+    transitoria. Si 2+ meses CONSECUTIVOS quedan marcados como candidatos en
+    la MISMA dirección (incluso en la cola de la serie), ya no es un pico:
+    es un cambio de nivel sostenido y legítimo (p.ej. una plaza que empieza
+    a vender 100x más y lo mantiene) -- se rescata para que sí alimente
+    tendencia/estacionalidad/crecimiento. Solo sobreviven como atípicos los
+    meses verdaderamente aislados."""
+    n = len(candidatos)
+    resultado = candidatos.copy()
+    i = 0
+    while i < n:
+        if not candidatos[i]:
+            i += 1
+            continue
+        signo = np.sign(residuales[i])
+        j = i + 1
+        while j < n and candidatos[j] and np.sign(residuales[j]) == signo:
+            j += 1
+        if (j - i) >= 2:
+            resultado[i:j] = False
+        i = j
+    return resultado
+
+
+def detectar_atipicos(t: np.ndarray, valores: np.ndarray) -> np.ndarray:
+    """Modified Z-Score (mediana + MAD) sobre los RESIDUALES de un ajuste de
+    tendencia robusto (Theil-Sen), NO sobre los valores crudos (T22 fix).
+
+    Motivo: con mediana+MAD de los valores crudos, un cambio de RÉGIMEN
+    legítimo y sostenido (p.ej. una serie que vendía 2-17 m2/mes y de un mes
+    a otro empieza a vender 2,500-4,500 m2/mes) hace que la mediana
+    histórica sea minúscula y los meses NUEVOS -- el nivel real actual --
+    queden marcados "atípicos", justo lo opuesto de lo que se busca. Mirar
+    el residual contra una tendencia robusta, más la regla de persistencia
+    en `_descartar_rachas_sostenidas`, evita ese falso positivo: solo los
+    picos/valles puntuales que rompen la racha siguen marcándose.
+
+    Fallback a IQR si MAD de los residuales es 0 (dispersión casi nula,
+    donde MAD colapsaría el umbral y marcaría todo como atípico)."""
     n = len(valores)
     if n < 4:
         return np.zeros(n, dtype=bool)
-    mediana = np.median(valores)
-    mad = np.median(np.abs(valores - mediana))
+
+    pendiente = _pendiente_theil_sen(t, valores)
+    intercepto = float(np.median(valores - pendiente * t))
+    residuales = valores - (intercepto + pendiente * t)
+
+    mediana = np.median(residuales)
+    mad = np.median(np.abs(residuales - mediana))
     if mad > 1e-9:
-        mz = 0.6745 * (valores - mediana) / mad
-        return np.abs(mz) > Z_SCORE_THRESHOLD
-    q1, q3 = np.percentile(valores, [25, 75])
-    iqr = q3 - q1
-    if iqr <= 1e-9:
-        return np.zeros(n, dtype=bool)
-    lower, upper = q1 - 1.5 * iqr, q3 + 1.5 * iqr
-    return (valores < lower) | (valores > upper)
+        mz = 0.6745 * (residuales - mediana) / mad
+        candidatos = np.abs(mz) > Z_SCORE_THRESHOLD
+    else:
+        q1, q3 = np.percentile(residuales, [25, 75])
+        iqr = q3 - q1
+        if iqr <= 1e-9:
+            candidatos = np.zeros(n, dtype=bool)
+        else:
+            lower, upper = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+            candidatos = (residuales < lower) | (residuales > upper)
+
+    return _descartar_rachas_sostenidas(candidatos, residuales)
 
 
 def ajustar_tendencia(t: np.ndarray, y: np.ndarray) -> dict:
@@ -175,7 +247,7 @@ def construir_forecast_serie(meses: list[str], valores: list[float]) -> dict:
     n = len(meses)
     y = np.array(valores, dtype=float)
     t = np.arange(n, dtype=float)
-    atipicos = detectar_atipicos(y) if n > 0 else np.zeros(0, dtype=bool)
+    atipicos = detectar_atipicos(t, y) if n > 0 else np.zeros(0, dtype=bool)
 
     serie_historica = [
         {"anio_mes": meses[i], "valor_m2": round(float(y[i]), 2), "es_atipico": bool(atipicos[i])}
@@ -197,6 +269,7 @@ def construir_forecast_serie(meses: list[str], valores: list[float]) -> dict:
             "backtest": None,
             "producto_ganador": False,
             "crecimiento_pct": None,
+            "base_previa_m2": None,
         }
 
     t_limpio, y_limpio = t[limpio], y[limpio]
@@ -207,18 +280,33 @@ def construir_forecast_serie(meses: list[str], valores: list[float]) -> dict:
     calendario_limpio = [_mes_calendario(m) for m in meses_limpio]
     estacionalidad = calc_estacionalidad(calendario_limpio, residuales_limpio)
 
-    # Crecimiento reciente: promedio últimos 3 meses limpios vs los 3 previos.
+    # Crecimiento reciente (T22 fix): últimos 3 MESES CALENDARIO reales vs
+    # los 3 anteriores, tomados directamente de la serie ORIGINAL (y, no
+    # y_limpio) -- así siempre son 6 meses contiguos del calendario, con su
+    # valor real aunque el mes haya quedado marcado atípico. El bug previo
+    # comparaba y_limpio[-3:] vs y_limpio[-6:-3], que son posiciones de un
+    # arreglo YA FILTRADO: si se excluyeron atípicos en medio del histórico,
+    # esas posiciones dejan de corresponder a meses contiguos y el % de
+    # crecimiento sale inflado o directamente sin sentido.
     crecimiento_pct = None
-    if n_limpio >= 6:
-        recientes = y_limpio[-3:].mean()
-        previos = y_limpio[-6:-3].mean()
-        if previos > 1e-9:
-            crecimiento_pct = float((recientes - previos) / previos * 100)
+    base_previa_m2 = None
+    if n >= 6:
+        recientes = float(y[-3:].mean())
+        base_previa_m2 = float(y[-6:-3].mean())
+        if base_previa_m2 > 1e-9:
+            crecimiento_pct = float((recientes - base_previa_m2) / base_previa_m2 * 100)
 
+    # RN-16 (T22): además de tendencia creciente + crecimiento mínimo, se
+    # exige un piso de demanda previa (GANADOR_BASE_MINIMA_M2) para entrar al
+    # ranking de ganadores -- sin esto, una serie que pasó de vender 0.5 a 5
+    # m2/mes "gana" con +900% sin ser una señal comercial real (efecto base
+    # pequeña).
     producto_ganador = bool(
         tendencia["clasificacion"] == "creciente"
         and crecimiento_pct is not None
         and crecimiento_pct >= GANADOR_CRECIMIENTO_MIN * 100
+        and base_previa_m2 is not None
+        and base_previa_m2 >= GANADOR_BASE_MINIMA_M2
     )
 
     # Forecast hacia adelante, sobre el modelo ajustado con TODA la historia limpia.
@@ -282,6 +370,7 @@ def construir_forecast_serie(meses: list[str], valores: list[float]) -> dict:
         "backtest": backtest,
         "producto_ganador": producto_ganador,
         "crecimiento_pct": round(crecimiento_pct, 2) if crecimiento_pct is not None else None,
+        "base_previa_m2": round(base_previa_m2, 2) if base_previa_m2 is not None else None,
     }
 
 
@@ -387,6 +476,7 @@ def tendencias_ganadores(
                     "familia": info.get("familia"),
                     "canal": canal_serie,
                     "crecimiento_pct": resultado["crecimiento_pct"],
+                    "base_previa_m2": resultado["base_previa_m2"],
                     "tendencia": resultado["tendencia"],
                     "meses_usados": resultado["meses_usados"],
                 })
