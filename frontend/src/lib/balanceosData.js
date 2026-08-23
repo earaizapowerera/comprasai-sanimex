@@ -137,8 +137,12 @@ function buildRemates() {
   });
 }
 
+// limit=150 (tope del backend: 200): el default de la API (40, ordenado por
+// cajas_remanentes*precio_venta DESC) trunca la lista a puros $140/caja de
+// alto valor y la tabla se ve monótona. Con más items se ve la variedad real
+// de escalas (1-3/4-10/11-14/15-30/económico) y los flujos en-sitio vs traslado.
 export async function fetchRemates() {
-  const real = await tryFetch("/remates/detectar");
+  const real = await tryFetch("/remates/detectar?limit=150");
   if (real && Array.isArray(real.items ?? real)) {
     return { items: real.items ?? real, source: "api" };
   }
