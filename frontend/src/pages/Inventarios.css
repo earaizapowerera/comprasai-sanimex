@@ -1,0 +1,269 @@
+/* ============================================================================
+   Inventarios & Cobertura (T8) — estilos propios de página.
+   Construido 100% sobre design-tokens.css + components.css (no los duplica).
+   ============================================================================ */
+
+.page-inventarios {
+  max-width: var(--page-max-w);
+  margin: 0 auto;
+  padding: var(--gap-section) var(--page-pad-x);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-section);
+}
+
+.text-danger { color: var(--danger-text); }
+
+.pi-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+}
+
+/* --- Semáforo: dos estados extra que components.css no define --- */
+.sem--info {
+  background: var(--accent-soft);
+  color: var(--accent-soft-text);
+}
+.sem--info .sem__dot { background: var(--accent); }
+.sem--neutral {
+  background: var(--bg-surface-3);
+  color: var(--text-secondary);
+}
+.sem--neutral .sem__dot { background: var(--text-quaternary); }
+
+/* --- Filtros --- */
+.pi-filters {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+}
+
+.pi-chipgroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.pi-chipgroup__row {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.pi-combobox-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 190px;
+}
+.pi-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  cursor: pointer;
+  text-align: left;
+}
+.pi-select-trigger span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- KPIs de resumen --- */
+.pi-kpis {
+  display: grid;
+  gap: var(--space-5);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+/* --- Listas priorizadas --- */
+.pi-priorizadas {
+  display: grid;
+  gap: var(--gap-grid);
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+}
+
+.pi-priority-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.pi-priority-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.pi-priority-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pi-priority-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--dur-instant) linear;
+}
+.pi-priority-item:hover { background: var(--bg-surface-3); }
+.pi-priority-item__info {
+  flex: 1;
+  min-width: 0;
+}
+.pi-priority-item__info p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Tabla principal --- */
+.pi-table-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5);
+}
+.pi-table-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.pi-table-scroll {
+  max-height: 560px;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.pi-material-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.pi-row { cursor: pointer; }
+
+.pi-loading-more {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-4);
+}
+
+.pi-table-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.pi-table-skeleton__row {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  align-items: center;
+}
+
+/* --- Drawer de detalle (drill-down) --- */
+.pi-drawer {
+  position: fixed;
+  z-index: var(--z-modal);
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(460px, 100vw);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-xl);
+  border-left: 1px solid var(--border-default);
+  display: flex;
+  flex-direction: column;
+  animation: pi-drawer-in var(--dur-slow) var(--ease-out);
+  overflow-y: auto;
+}
+@keyframes pi-drawer-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+
+.pi-drawer__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-6) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  position: sticky;
+  top: 0;
+  background: var(--bg-elevated);
+  z-index: var(--z-sticky);
+}
+
+.pi-drawer__body {
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.pi-drawer__metrics {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: var(--bg-surface-2);
+  border-radius: var(--radius-md);
+}
+
+.pi-mini-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pi-drawer__chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--space-2);
+}
+
+.pi-drawer__cta {
+  width: 100%;
+  margin-top: var(--space-2);
+}
+
+.pi-chart { display: flex; flex-direction: column; gap: var(--space-2); }
+.pi-chart__legend {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.pi-legend-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: var(--radius-circle);
+  margin-right: var(--space-1);
+}
+.pi-legend-dot--real { background: var(--accent); }
+.pi-legend-dot--forecast { background: var(--ai); }
+
+/* --- Responsive --- */
+@media (max-width: 900px) {
+  .pi-drawer { width: 100vw; }
+}
+@media (max-width: 720px) {
+  .page-inventarios { padding: var(--space-5) var(--space-4); }
+  .app-page-header { flex-direction: column; align-items: stretch; }
+  .pi-drawer__metrics { grid-template-columns: 1fr; }
+}

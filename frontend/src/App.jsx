@@ -4,16 +4,14 @@ import Dashboard from './pages/Dashboard.jsx'
 import Placeholder from './pages/Placeholder.jsx'
 import Balanceos from './pages/Balanceos.jsx'
 import ChatPlanner from './pages/ChatPlanner.jsx'
+import Inventarios from './pages/Inventarios.jsx'
 
 export default function App() {
   return (
     <Shell>
       <Routes>
         <Route path="/" element={<Dashboard />} />
-        <Route
-          path="/inventarios"
-          element={<Placeholder title="Inventarios & Cobertura" waykee="T8" />}
-        />
+        <Route path="/inventarios" element={<Inventarios />} />
         <Route
           path="/sugeridos"
           element={<Placeholder title="Sugeridos de Compra" waykee="T9" star />}
