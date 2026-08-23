@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ComprasAI Sanimex · Balanceos &amp; Remates (preview)</title>
+<link rel="preconnect" href="https://rsms.me/">
+<link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+<link rel="stylesheet" href="design-tokens.css">
+<link rel="stylesheet" href="components.css">
+<link rel="stylesheet" href="../frontend/src/pages/Balanceos.css">
+<style>
+  .sys-topbar { position: sticky; top: 0; z-index: var(--z-sticky); height: var(--topbar-h);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 var(--page-pad-x); background: color-mix(in srgb, var(--bg-app) 82%, transparent);
+    backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid var(--border-subtle); }
+  .brand { display: flex; align-items: center; gap: var(--space-3); font-weight: var(--fw-bold); letter-spacing: var(--ls-tight); }
+  .brand__mark { width: 30px; height: 30px; border-radius: 9px; background: var(--ai-gradient);
+    display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 15px; }
+  .preview-note { max-width: 62ch; }
+</style>
+</head>
+<body>
+
+<header class="sys-topbar">
+  <div class="brand"><span class="brand__mark">C</span> ComprasAI <span class="badge badge--ai">Sanimex</span></div>
+  <button class="btn btn--secondary btn--sm" id="themeBtn">◐ <span id="themeLbl">Dark</span></button>
+</header>
+
+<div id="root" class="page-balanceos"></div>
+
+<script>
+/* ============================================================================
+ * Preview standalone (T10, waykee 290098) — sin build, sin dependencias.
+ * Reimplementa en vanilla JS EXACTAMENTE la misma lógica de
+ * ../frontend/src/lib/remateEngine.js y balanceosData.js, para que la
+ * pantalla sea demoable hoy sin esperar el scaffold de Vite (T7) ni la API
+ * real de motores (T4). Cuando ambos existan, la fuente de verdad pasa a ser
+ * React (Balanceos.jsx) — este archivo es solo un espejo de demostración.
+ * ========================================================================== */
+
+// --- Motor de reglas C1 (espejo de remateEngine.js) ------------------------
+const ESCALAS_REMATE = [
+  { min: 1, max: 3, precio: 70 },
+  { min: 4, max: 10, precio: 80 },
+  { min: 11, max: 14, precio: 120 },
+  { min: 15, max: 30, precio: 140 },
+];
+const PLAZAS_EXCEPCION = ["Juchitán", "Tlapa", "San Andrés", "Cd. Valles", "Putla", "Toluca"];
+
+function precioRemate(cajas, economico) {
+  if (economico && cajas >= 30) {
+    return { precio: 120, esSupuesto: false, esExcepcion: true, motivo: "Económico con 30+ cajas → remate directo (regla explícita de la minuta)" };
+  }
+  if (!economico && cajas > 30) {
+    return { precio: 140, esSupuesto: true, esExcepcion: true, motivo: "La minuta no define escala > 30 cajas para producto no económico; se extiende el último rango (15-30 → $140). Validar con Sanimex." };
+  }
+  const escala = ESCALAS_REMATE.find((e) => cajas >= e.min && cajas <= e.max) || ESCALAS_REMATE[0];
+  return { precio: escala.precio, esSupuesto: false, esExcepcion: false, motivo: null };
+}
+
+function esPlazaExcepcion(nombre) {
+  return PLAZAS_EXCEPCION.some((p) => nombre?.includes(p));
+}
+
+function computeRuteoRemate({ cajas, economico, organizacion, plant, nombre, corredor }, rutasGAM) {
+  const excepcionPlaza = esPlazaExcepcion(nombre);
+  const enEscalaAlta = cajas >= 11;
+  const trasladar = !excepcionPlaza && enEscalaAlta && organizacion !== "GAMN";
+
+  if (!trasladar) {
+    return {
+      ruta: [{ tipo: "origen", nombre, plant }],
+      enSitio: true,
+      excepcionPlaza,
+    };
+  }
+  const ruta = [{ tipo: "origen", nombre, plant }];
+  let destinoFinal;
+  if (organizacion === "GAM") {
+    const r = rutasGAM[corredor] || rutasGAM.default;
+    ruta.push({ tipo: "cedis", nombre: r.cedis });
+    destinoFinal = r.remate;
+  } else if (organizacion === "GSA") {
+    destinoFinal = "R1";
+  } else if (organizacion === "SA") {
+    destinoFinal = "Tienda 4";
+  } else {
+    destinoFinal = nombre;
+  }
+  ruta.push({ tipo: "remate", nombre: destinoFinal });
+  return { ruta, enSitio: false, excepcionPlaza: false };
+}
+
+function buildRemateLine(item, rutasGAM) {
+  const { precio, esSupuesto, esExcepcion, motivo } = precioRemate(item.cajas, item.economico);
+  const ruteo = computeRuteoRemate(item, rutasGAM);
+  return {
+    ...item,
+    precioPorCaja: precio,
+    importe: Math.round(precio * item.cajas),
+    esSupuestoPrecio: esSupuesto,
+    esExcepcionPrecio: esExcepcion,
+    motivoPrecio: motivo,
+    ...ruteo,
+  };
+}
+
+function computeTransferenciaCorredor(deficit, excedenteCorredor) {
+  const transferir = Math.min(deficit, Math.max(0, excedenteCorredor));
+  const comprar = Math.max(0, deficit - transferir);
+  return { transferir, comprar };
+}
+
+// --- Datos mock (espejo de balanceosData.js) --------------------------------
+const RUTAS_GAM = {
+  "Corredor Noreste": { cedis: "CEDIS Monterrey Centro", remate: "Sanimex Saltillo Centro" },
+  "Corredor Bajío": { cedis: "CEDIS León Centro", remate: "Sanimex Celaya Centro" },
+  "Corredor Centro": { cedis: "CEDIS CDMX Iztapalapa", remate: "Sanimex Pachuca Centro" },
+  "Corredor Occidente": { cedis: "CEDIS Guadalajara Zapopan", remate: "Sanimex Colima Centro" },
+  default: { cedis: "CEDIS Regional", remate: "Sucursal de Remate Regional" },
+};
+
+const MOCK_BALANCEOS_RAW = [
+  { material_id: "SAN-PIS-0112", descripcion: "Piso Porcelanato 60x60 Beige", abc: "A", corredor: "Corredor Noreste",
+    origen: { nombre: "Sanimex Monterrey Apodaca" }, destino: { nombre: "Sanimex Monterrey Centro" },
+    deficit: 60, excedenteCorredor: 95, precioVenta: 310, costoCajaTraslado: 38 },
+  { material_id: "SAN-AZU-0087", descripcion: "Azulejo 30x60 Gris", abc: "B", corredor: "Corredor Bajío",
+    origen: { nombre: "Sanimex León Centro" }, destino: { nombre: "Sanimex Celaya Centro" },
+    deficit: 40, excedenteCorredor: 22, precioVenta: 165, costoCajaTraslado: 30 },
+  { material_id: "SAN-SAN-0033", descripcion: "Sanitario Dueto Blanco", abc: "A", corredor: "Corredor Centro",
+    origen: { nombre: "Sanimex CDMX Coyoacán" }, destino: { nombre: "Sanimex CDMX Naucalpan" },
+    deficit: 18, excedenteCorredor: 25, precioVenta: 2450, costoCajaTraslado: 210 },
+  { material_id: "SAN-PIS-0056", descripcion: "Piso Cerámico 45x45 Arena", abc: "B", corredor: "Corredor Occidente",
+    origen: { nombre: "Sanimex Guadalajara Centro" }, destino: { nombre: "Sanimex Colima Centro" },
+    deficit: 72, excedenteCorredor: 50, precioVenta: 128, costoCajaTraslado: 22 },
+  { material_id: "SAN-FAC-0019", descripcion: "Fachada Piedra Rústica", abc: "C", corredor: "Corredor Noreste",
+    origen: { nombre: "Sanimex Saltillo Centro" }, destino: { nombre: "Sanimex Monterrey Apodaca" },
+    deficit: 30, excedenteCorredor: 30, precioVenta: 245, costoCajaTraslado: 34 },
+  { material_id: "SAN-PEG-0004", descripcion: "Pegazulejo Bulto 25kg", abc: "B", corredor: "Corredor Bajío",
+    origen: { nombre: "Sanimex Celaya Centro" }, destino: { nombre: "Sanimex León Centro" },
+    deficit: 26, excedenteCorredor: 34, precioVenta: 210, costoCajaTraslado: 18 },
+];
+
+const MOCK_REMATES_RAW = [
+  { material_id: "SAN-BOQ-0021", descripcion: "Boquilla Bolsa 5kg", abc: "C", economico: true,
+    organizacion: "GAM", nombre: "Sanimex Monterrey Apodaca", corredor: "Corredor Noreste",
+    diasSinVenta: 118, cajas: 2, precioVenta: 95 },
+  { material_id: "SAN-ACC-0045", descripcion: "Crucetas 2mm (caja)", abc: "C", economico: true,
+    organizacion: "GSA", nombre: "Sanimex Culiacán Centro", corredor: "Corredor Pacífico",
+    diasSinVenta: 96, cajas: 7, precioVenta: 78 },
+  { material_id: "SAN-PIS-0078", descripcion: "Piso Cerámico 33x33 Blanco", abc: "C", economico: false,
+    organizacion: "SA", nombre: "Sanimex Villahermosa Centro", corredor: "Corredor Sureste",
+    diasSinVenta: 140, cajas: 12, precioVenta: 105 },
+  { material_id: "SAN-AZU-0102", descripcion: "Azulejo 20x30 Hueso", abc: "B", economico: false,
+    organizacion: "GAMN", nombre: "Sanimex Querétaro Centro", corredor: "Corredor Bajío",
+    diasSinVenta: 85, cajas: 18, precioVenta: 118 },
+  { material_id: "SAN-PIS-0091", descripcion: "Piso Porcelanato 80x80 Gris Humo", abc: "A", economico: false,
+    organizacion: "GAM", nombre: "Sanimex León Centro", corredor: "Corredor Bajío",
+    diasSinVenta: 102, cajas: 25, precioVenta: 420 },
+  { material_id: "SAN-SAN-0061", descripcion: "WC Unitario Color", abc: "C", economico: false,
+    organizacion: "GAM", nombre: "Sanimex Toluca Centro", corredor: "Corredor Centro",
+    diasSinVenta: 165, cajas: 20, precioVenta: 1850 },
+  { material_id: "SAN-PEG-0011", descripcion: "Pegazulejo Bulto 20kg (descontinuado)", abc: "C", economico: true,
+    organizacion: "GAM", nombre: "Sanimex Guadalajara Centro", corredor: "Corredor Occidente",
+    diasSinVenta: 210, cajas: 34, precioVenta: 190 },
+  { material_id: "SAN-FAC-0028", descripcion: "Fachada Cantera (fin de línea)", abc: "B", economico: false,
+    organizacion: "SA", nombre: "Sanimex CDMX Naucalpan", corredor: "Corredor Centro",
+    diasSinVenta: 130, cajas: 33, precioVenta: 260 },
+  { material_id: "SAN-BOQ-0009", descripcion: "Boquilla Bolsa 1kg", abc: "C", economico: true,
+    organizacion: "GAMN", nombre: "Sanimex Morelia Centro", corredor: "Corredor Bajío",
+    diasSinVenta: 75, cajas: 5, precioVenta: 62 },
+  { material_id: "SAN-PIS-0044", descripcion: "Piso Cerámico 40x40 Terracota", abc: "B", economico: false,
+    organizacion: "GAM", nombre: "Sanimex Saltillo Centro", corredor: "Corredor Noreste",
+    diasSinVenta: 91, cajas: 13, precioVenta: 132 },
+];
+
+function buildBalanceos() {
+  return MOCK_BALANCEOS_RAW.map((b, i) => {
+    const { transferir, comprar } = computeTransferenciaCorredor(b.deficit, b.excedenteCorredor);
+    const ahorroEstimado = Math.max(0, Math.round(transferir * b.precioVenta * 0.62 - transferir * b.costoCajaTraslado));
+    return { id: `BAL-${String(i + 1).padStart(3, "0")}`, ...b, cajasTransferir: transferir, cajasComprar: comprar,
+      costoTraslado: Math.round(transferir * b.costoCajaTraslado), ahorroEstimado, estado: "pendiente" };
+  });
+}
+function buildRemates() {
+  return MOCK_REMATES_RAW.map((r, i) => {
+    const line = buildRemateLine(r, RUTAS_GAM);
+    return { id: `REM-${String(i + 1).padStart(3, "0")}`, ...line, valorEnRiesgo: Math.round(r.cajas * r.precioVenta), estado: "pendiente" };
+  });
+}
+
+// --- Estado + render ---------------------------------------------------------
+const state = {
+  tab: "balanceos",
+  org: "todas",
+  search: "",
+  balanceos: buildBalanceos(),
+  remates: buildRemates(),
+};
+const ORGANIZACIONES = ["GAM", "GSA", "SA", "GAMN"];
+
+function h(tag, attrs, children) {
+  const el = document.createElement(tag);
+  for (const k in attrs || {}) {
+    if (k === "class") el.className = attrs[k];
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), attrs[k]);
+    else el.setAttribute(k, attrs[k]);
+  }
+  (Array.isArray(children) ? children : [children]).forEach((c) => {
+    if (c == null) return;
+    el.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+  });
+  return el;
+}
+
+function metric(label, value, tone, strong) {
+  const toneClass = tone === "ok" ? "text-success" : tone === "warn" ? "text-warn" : tone === "danger" ? "text-danger" : "";
+  return h("div", { class: "pb-metric" }, [
+    h("span", { class: "caption" }, label),
+    h("span", { class: `tnum ${strong ? "body" : "footnote"} ${toneClass}` }, String(value)),
+  ]);
+}
+
+function flowBalanceo(origen, destino, cajas) {
+  return h("div", { class: "flow" }, [
+    h("div", { class: "flow-node" }, [h("span", { class: "caption" }, "Origen (exceso)"), h("span", { class: "footnote", style: "font-weight:600" }, origen.nombre)]),
+    h("div", { class: "flow-arrow" }, [h("span", { class: "flow-arrow__label tnum" }, `${cajas} cajas`), h("div", { class: "flow-arrow__line" })]),
+    h("div", { class: "flow-node flow-node--dest" }, [h("span", { class: "caption" }, "Destino (faltante)"), h("span", { class: "footnote", style: "font-weight:600" }, destino.nombre)]),
+  ]);
+}
+
+function flowRemate(ruta, enSitio, excepcionPlaza) {
+  if (enSitio) {
+    return h("div", { class: "flow" }, [
+      h("div", { class: "flow-node flow-node--dest" }, [
+        h("span", { class: "caption" }, excepcionPlaza ? "Plaza de excepción" : "Sin traslado"),
+        h("span", { class: "footnote", style: "font-weight:600" }, `${ruta[0].nombre} · liquida en sitio`),
+      ]),
+    ]);
+  }
+  const container = h("div", { class: "flow flow--multi" }, []);
+  ruta.forEach((nodo, i) => {
+    const cls = nodo.tipo === "remate" ? "flow-node flow-node--dest" : nodo.tipo === "cedis" ? "flow-node flow-node--cedis" : "flow-node";
+    const label = nodo.tipo === "origen" ? "Origen" : nodo.tipo === "cedis" ? "CEDIS" : "Sucursal de remate";
+    container.appendChild(h("div", { class: "flow-hop" }, [
+      h("div", { class: cls }, [h("span", { class: "caption" }, label), h("span", { class: "footnote", style: "font-weight:600" }, nodo.nombre)]),
+      i < ruta.length - 1 ? h("div", { class: "flow-arrow flow-arrow--compact" }, [h("div", { class: "flow-arrow__line" })]) : null,
+    ]));
+  });
+  return container;
+}
+
+function cardBalanceo(b) {
+  const card = h("div", { class: "card pb-card" }, [
+    h("div", { class: "pb-card__top" }, [
+      h("div", { class: "pb-card__title" }, [
+        h("span", { class: `abc abc--${b.abc.toLowerCase()}` }, b.abc),
+        h("div", {}, [h("p", { class: "body", style: "font-weight:600" }, b.descripcion), h("p", { class: "caption tnum" }, `${b.material_id} · ${b.corredor}`)]),
+      ]),
+      h("span", { class: "layer layer--c3" }, "C3"),
+    ]),
+    flowBalanceo(b.origen, b.destino, b.cajasTransferir),
+    h("div", { class: "pb-card__metrics" }, [
+      metric("Transferir", `${b.cajasTransferir} cajas`),
+      b.cajasComprar > 0 ? metric("Compra complementaria", `${b.cajasComprar} cajas`, "warn") : metric("Compra evitada", "100%", "ok"),
+      metric("Costo traslado", `$${b.costoTraslado.toLocaleString("es-MX")}`),
+      metric("Ahorro estimado", `$${b.ahorroEstimado.toLocaleString("es-MX")}`, "ok", true),
+    ]),
+    h("div", { class: "pb-card__actions" }, actionsBalanceo(b)),
+  ]);
+  return card;
+}
+
+function actionsBalanceo(b) {
+  if (b.estado !== "pendiente") {
+    return [h("span", { class: `badge ${b.estado === "aprobado" ? "badge--success" : "badge--danger"}` }, b.estado === "aprobado" ? "✓ Aprobado" : "✕ Rechazado")];
+  }
+  const rechazar = h("button", { class: "btn btn--secondary btn--sm", onclick: () => { b.estado = "rechazado"; render(); } }, "Rechazar");
+  const aprobar = h("button", { class: "btn btn--primary btn--sm", onclick: () => { b.estado = "aprobado"; render(); } }, "Aprobar transferencia");
+  return [rechazar, aprobar];
+}
+
+function cardRemate(r) {
+  const titleChildren = [h("p", { class: "body", style: "font-weight:600" }, r.descripcion)];
+  if (r.economico) titleChildren[0].appendChild(h("span", { class: "badge badge--neutral", style: "margin-left:8px" }, "Económico"));
+  titleChildren.push(h("p", { class: "caption tnum" }, `${r.material_id} · ${r.nombre} · ${r.organizacion}`));
+
+  const card = h("div", { class: "card pb-card" }, [
+    h("div", { class: "pb-card__top" }, [
+      h("div", { class: "pb-card__title" }, [h("span", { class: `abc abc--${r.abc.toLowerCase()}` }, r.abc), h("div", {}, titleChildren)]),
+      h("span", { class: "layer layer--c1" }, "C1"),
+    ]),
+    flowRemate(r.ruta, r.enSitio, r.excepcionPlaza),
+    h("div", { class: "pb-card__metrics" }, [
+      metric("Días sin venta", r.diasSinVenta, r.diasSinVenta > 120 ? "danger" : "warn"),
+      metric("Cajas remanentes", r.cajas),
+      metric("Precio de remate", `$${r.precioPorCaja}/caja`),
+      metric("Valor en riesgo", `$${r.valorEnRiesgo.toLocaleString("es-MX")}`, "danger", true),
+      metric("Importe remate", `$${r.importe.toLocaleString("es-MX")}`, "ok", true),
+    ]),
+  ]);
+  if (r.esExcepcionPrecio) {
+    card.appendChild(h("div", { class: "ai-explain", style: "margin-top:var(--space-3)" }, [
+      h("div", { class: "ai-explain__head" }, r.esSupuestoPrecio ? "⚠ Supuesto a validar con Sanimex" : "✓ Regla de excepción aplicada"),
+      h("p", { class: "footnote", style: "margin:var(--space-2) 0 0" }, r.motivoPrecio),
+    ]));
+  }
+  const actions = h("div", { class: "pb-card__actions" }, []);
+  if (r.estado === "pendiente") {
+    actions.appendChild(h("button", { class: "btn btn--danger btn--sm", onclick: () => { r.estado = "marcado"; render(); } }, "Marcar para remate"));
+  } else {
+    actions.appendChild(h("span", { class: "badge badge--danger" }, "✓ Marcado para remate"));
+  }
+  card.appendChild(actions);
+  return card;
+}
+
+function empty(icon, title, sub) {
+  return h("div", { class: "empty card" }, [
+    h("div", { class: "empty__icon" }, icon),
+    h("p", { class: "h4" }, title),
+    h("p", { class: "footnote" }, sub),
+  ]);
+}
+
+function legend() {
+  return h("div", { class: "card card--flat pb-legend" }, [
+    h("span", { class: "eyebrow" }, "Minuta GAM · precio por caja según cantidad remanente"),
+    h("div", { class: "pb-legend__row" }, [
+      h("span", { class: "badge badge--neutral tnum" }, "1-3 → $70"),
+      h("span", { class: "badge badge--neutral tnum" }, "4-10 → $80"),
+      h("span", { class: "badge badge--warning tnum" }, "11-14 → $120"),
+      h("span", { class: "badge badge--danger tnum" }, "15-30 → $140"),
+      h("span", { class: "badge badge--ai tnum" }, "Económico ≥30 → $120 directo"),
+    ]),
+  ]);
+}
+
+function render() {
+  const root = document.getElementById("root");
+  root.innerHTML = "";
+
+  const balanceosFiltrados = state.balanceos.filter((b) => !state.search || b.descripcion.toLowerCase().includes(state.search.toLowerCase()) || b.material_id.toLowerCase().includes(state.search.toLowerCase()));
+  const rematesFiltrados = state.remates.filter((r) => (state.org === "todas" || r.organizacion === state.org) && (!state.search || r.descripcion.toLowerCase().includes(state.search.toLowerCase()) || r.material_id.toLowerCase().includes(state.search.toLowerCase())));
+
+  // Header
+  const header = h("header", { class: "pb-header" }, [
+    h("div", {}, [
+      h("p", { class: "eyebrow" }, "Inventarios · Optimización"),
+      h("h1", { class: "h1" }, "Balanceos & Remates"),
+      h("p", { class: "body text-secondary preview-note", style: "margin-top:var(--space-1)" }, "¿Qué muevo entre sucursales antes de comprar, y qué liquido antes de que se vuelva costo muerto?"),
+    ]),
+    h("div", { class: "pb-tabs" }, [
+      h("button", { class: `pb-tab ${state.tab === "balanceos" ? "pb-tab--active" : ""}`, onclick: () => { state.tab = "balanceos"; render(); } }, [
+        document.createTextNode("⇄ Balanceos "), h("span", { class: "badge badge--neutral" }, String(balanceosFiltrados.length)),
+      ]),
+      h("button", { class: `pb-tab ${state.tab === "remates" ? "pb-tab--active" : ""}`, onclick: () => { state.tab = "remates"; render(); } }, [
+        document.createTextNode("⚠ Remates "), h("span", { class: "badge badge--neutral" }, String(rematesFiltrados.length)),
+      ]),
+    ]),
+  ]);
+  root.appendChild(header);
+
+  // Filtros
+  const searchInput = h("input", { class: "input", placeholder: "Buscar SKU o descripción…", style: "border:none;background:transparent;padding:0;height:auto" });
+  searchInput.value = state.search;
+  searchInput.addEventListener("input", (e) => { state.search = e.target.value; render(); searchInput.focus(); });
+  const filtersChildren = [h("div", { class: "input combobox", style: "max-width:280px" }, [searchInput])];
+  if (state.tab === "remates") {
+    const orgFilter = h("div", { class: "pb-org-filter" }, [
+      h("button", { class: `btn btn--sm ${state.org === "todas" ? "btn--primary" : "btn--secondary"}`, onclick: () => { state.org = "todas"; render(); } }, "Todas"),
+      ...ORGANIZACIONES.map((o) => h("button", { class: `btn btn--sm ${state.org === o ? "btn--primary" : "btn--secondary"}`, onclick: () => { state.org = o; render(); } }, o)),
+    ]);
+    filtersChildren.push(orgFilter);
+  }
+  filtersChildren.push(h("span", { class: "badge badge--ai" }, "✨ Demo con motor de reglas local — API T4 pendiente"));
+  root.appendChild(h("div", { class: "pb-filters card card--flat" }, filtersChildren));
+
+  if (state.tab === "balanceos") {
+    if (!balanceosFiltrados.length) {
+      root.appendChild(empty("⇄", "Sin propuestas de balanceo", "No hay excedentes disponibles dentro de ningún corredor en este momento."));
+    } else {
+      root.appendChild(h("div", { class: "pb-list" }, balanceosFiltrados.map(cardBalanceo)));
+    }
+  } else {
+    root.appendChild(legend());
+    if (!rematesFiltrados.length) {
+      root.appendChild(empty("⚠", "Sin remanentes detectados", "Ajusta el filtro de organización o vuelve más tarde."));
+    } else {
+      root.appendChild(h("div", { class: "pb-list" }, rematesFiltrados.map(cardRemate)));
+    }
+  }
+}
+
+render();
+
+// --- Theme toggle ------------------------------------------------------------
+const btn = document.getElementById('themeBtn');
+const lbl = document.getElementById('themeLbl');
+const docRoot = document.documentElement;
+btn.addEventListener('click', () => {
+  const next = docRoot.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  docRoot.setAttribute('data-theme', next);
+  lbl.textContent = next === 'dark' ? 'Light' : 'Dark';
+});
+</script>
+</body>
+</html>
