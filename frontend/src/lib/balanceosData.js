@@ -11,6 +11,7 @@
  */
 
 import { buildRemateLine, computeTransferenciaCorredor } from "./remateEngine";
+import { API_BASE } from "./api";
 
 // Tabla de ruteo GAM: corredor -> {cedis, remate}. En producción vive en BD
 // (editable, según T4); aquí es un mock razonable por corredor.
@@ -24,9 +25,13 @@ export const RUTAS_GAM = {
 
 const ORG_LABEL = { GAM: "GAM", GSA: "GSA", SA: "SA", GAMN: "GAMN" };
 
+// path relativo (p.ej. "/balanceos/propuestas"); se resuelve contra API_BASE
+// (mismo helper que el resto de las pantallas) para respetar el prefijo real
+// bajo nginx (/comprasAI/api/...) en vez de una ruta absoluta "/api/..." que
+// se rompe detrás del proxy.
 async function tryFetch(path) {
   try {
-    const res = await fetch(path, { headers: { Accept: "application/json" } });
+    const res = await fetch(`${API_BASE}${path}`, { headers: { Accept: "application/json" } });
     if (!res.ok) return null;
     return await res.json();
   } catch {
@@ -77,7 +82,7 @@ function buildBalanceos() {
 }
 
 export async function fetchBalanceos() {
-  const real = await tryFetch("/api/balanceos/propuestas");
+  const real = await tryFetch("/balanceos/propuestas");
   if (real && Array.isArray(real.items ?? real)) {
     return { items: real.items ?? real, source: "api" };
   }
@@ -133,7 +138,7 @@ function buildRemates() {
 }
 
 export async function fetchRemates() {
-  const real = await tryFetch("/api/remates/detectar");
+  const real = await tryFetch("/remates/detectar");
   if (real && Array.isArray(real.items ?? real)) {
     return { items: real.items ?? real, source: "api" };
   }
