@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import AUTO_SEED_IF_MISSING, DB_PATH, FRONTEND_STATIC_DIR
 from app.routers import engines_status, inventarios, kpis, materiales, sucursales, ventas
+from app.routers.engines import chat_agente
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("comprasai")
@@ -63,8 +64,16 @@ app.include_router(inventarios.router)
 app.include_router(kpis.router)
 app.include_router(ventas.router)
 app.include_router(engines_status.router)
-# Los motores T4/T5/T6 se registran aquí: app.include_router(<engine>.router)
+app.include_router(chat_agente.router)
+# Los motores T4/T5 (sugeridos, forecast) se registran aquí cuando aterricen.
 # Ver app/routers/engines/README_MOTORES.py
+
+
+@app.post("/api/chat", tags=["C3-agente"])
+def chat_alias(payload: chat_agente.ChatRequest):
+    """Alias literal pedido por el ticket T6: mismo handler que
+    POST /api/engines/chat_agente/chat, expuesto también en /api/chat."""
+    return chat_agente.chat_response(payload)
 
 # Frontend estático (T5) — montado al final para que /api/* tenga prioridad.
 if FRONTEND_STATIC_DIR.exists():

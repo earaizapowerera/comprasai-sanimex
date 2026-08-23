@@ -7,6 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/app ./app
 COPY backend/data ./data
+COPY backend/agente_c3.py ./agente_c3.py
 COPY frontend_static ./frontend_static
 
 ENV ROOT_PATH=/comprasAI \

@@ -18,3 +18,9 @@ services:
       - COMPRASAI_DB_PATH=/app/data/comprasai.db
       - FRONTEND_STATIC_DIR=/app/frontend_static
       - AUTO_SEED_IF_MISSING=1
+      # C3 (agente_c3.py): API de Anthropic para explicabilidad + chat del
+      # planeador. Opcional -- si no está seteada, el agente usa un fallback
+      # determinista de plantillas y la demo sigue funcionando igual.
+      # Se toma del entorno del host (NUNCA hardcodear la key aquí).
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-5}
