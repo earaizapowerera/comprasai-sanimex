@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from app.core.config import AUTO_SEED_IF_MISSING, DB_PATH, FRONTEND_STATIC_DIR
 from app.routers import engines_status, inventarios, kpis, materiales, sucursales, ventas
 from app.routers.engines import chat_agente
+from app.routers.engines import sugeridos as engine_sugeridos
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("comprasai")
@@ -65,7 +66,9 @@ app.include_router(kpis.router)
 app.include_router(ventas.router)
 app.include_router(engines_status.router)
 app.include_router(chat_agente.router)
-# Los motores T4/T5 (sugeridos, forecast) se registran aquí cuando aterricen.
+app.include_router(engine_sugeridos.router)
+# Los motores restantes (remates C1, forecast C2) se registran aquí de la
+# misma forma: app.include_router(<engine>.router)
 # Ver app/routers/engines/README_MOTORES.py
 
 

@@ -3,6 +3,7 @@ import Shell from './components/Shell.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Placeholder from './pages/Placeholder.jsx'
 import Balanceos from './pages/Balanceos.jsx'
+import Sugeridos from './pages/Sugeridos.jsx'
 import ChatPlanner from './pages/ChatPlanner.jsx'
 import Inventarios from './pages/Inventarios.jsx'
 
@@ -12,10 +13,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/inventarios" element={<Inventarios />} />
-        <Route
-          path="/sugeridos"
-          element={<Placeholder title="Sugeridos de Compra" waykee="T9" star />}
-        />
+        <Route path="/sugeridos" element={<Sugeridos />} />
         <Route path="/balanceos" element={<Balanceos />} />
         <Route
           path="/semaforo"

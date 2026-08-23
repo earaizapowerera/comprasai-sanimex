@@ -15,12 +15,14 @@ def _row_factory(cursor: sqlite3.Cursor, row: tuple) -> dict:
 
 
 def get_raw_connection() -> sqlite3.Connection:
-    # check_same_thread=False: cada conexión se abre y cierra dentro de UN
-    # solo request (nunca se comparte entre requests concurrentes), pero
-    # FastAPI puede entrar/salir de una dependencia generadora sync en un
-    # hilo del threadpool distinto al que corre el endpoint. Sin este flag,
-    # sqlite3 lanza "SQLite objects created in a thread can only be used in
-    # that same thread" de forma intermitente bajo carga concurrente.
+    # check_same_thread=False: FastAPI resuelve dependencias sync y ejecuta el
+    # endpoint vía run_in_threadpool en llamadas *separadas*, que pueden caer en
+    # threads distintos del pool para la misma request. La conexión se crea en
+    # un thread y se usa en otro -> sqlite3.ProgrammingError sin este flag,
+    # visto en vivo como 500 intermitente en cualquier endpoint (p.ej.
+    # /api/engines/sugeridos/opciones). El acceso sigue siendo secuencial
+    # dentro de una misma request (una conexión por request, cerrada al
+    # finalizar), así que es seguro desactivar el chequeo de thread-affinity.
     conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     conn.row_factory = _row_factory
     conn.execute("PRAGMA foreign_keys = ON")
