@@ -103,3 +103,42 @@ export const IconUser = (p) => (
     <path d="M4.8 20c1.2-3.6 4-5.5 7.2-5.5s6 1.9 7.2 5.5" />
   </svg>
 )
+
+export const IconTrendUp = (p) => (
+  <svg {...base} {...p}>
+    <path d="M3 17 9.5 10.5l4 4L21 6" />
+    <path d="M15 6h6v6" />
+  </svg>
+)
+
+export const IconAlertTriangle = (p) => (
+  <svg {...base} {...p}>
+    <path d="M12 3.5 21.5 20h-19L12 3.5Z" />
+    <path d="M12 9.5v4.2" />
+    <circle cx="12" cy="17" r="0.9" fill="currentColor" stroke="none" />
+  </svg>
+)
+
+export const IconGrid = (p) => (
+  <svg {...base} {...p}>
+    <rect x="3" y="3" width="7" height="7" rx="1.2" />
+    <rect x="14" y="3" width="7" height="7" rx="1.2" />
+    <rect x="3" y="14" width="7" height="7" rx="1.2" />
+    <rect x="14" y="14" width="7" height="7" rx="1.2" />
+  </svg>
+)
+
+export const IconCoin = (p) => (
+  <svg {...base} {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7.5v9M9.3 15c0 1.1 1.1 1.8 2.7 1.8 1.8 0 2.9-.8 2.9-2 0-1.4-1.3-1.8-2.9-2.2-1.6-.4-2.7-.9-2.7-2.1 0-1.1 1.1-1.9 2.7-1.9 1.4 0 2.4.6 2.7 1.6" />
+  </svg>
+)
+
+export const IconGauge = (p) => (
+  <svg {...base} {...p}>
+    <path d="M4 15a8 8 0 1 1 16 0" />
+    <path d="M12 15 15.5 9.5" />
+    <path d="M4 15h1.2M18.8 15H20M6.5 8.5l.9.9M17.5 8.5l-.9.9" />
+  </svg>
+)

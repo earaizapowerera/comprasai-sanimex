@@ -1,0 +1,186 @@
+/* ============================================================================
+   Dashboard Ejecutivo (T7) — estilos propios de página.
+   Construido 100% sobre design-tokens.css + components.css (no los duplica).
+   ============================================================================ */
+
+.page-dashboard {
+  max-width: var(--page-max-w);
+  margin: 0 auto;
+  padding: var(--gap-section) var(--page-pad-x);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-section);
+}
+
+/* Semáforo: dos estados extra que components.css no define (mismo mapeo
+   que Inventarios.css — duplicado a propósito para no depender del orden
+   de carga de rutas). */
+.sem--info { background: var(--accent-soft); color: var(--accent-soft-text); }
+.sem--info .sem__dot { background: var(--accent); }
+.sem--neutral { background: var(--bg-surface-3); color: var(--text-secondary); }
+.sem--neutral .sem__dot { background: var(--text-quaternary); }
+
+/* --- Fila de KPIs --- */
+.dash-kpis {
+  display: grid;
+  gap: var(--space-5);
+  grid-template-columns: repeat(5, 1fr);
+}
+.dash-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  animation: pop-in var(--dur-slow) var(--ease-out) backwards;
+}
+.dash-kpi__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.dash-kpi__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px; height: 30px;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-3);
+  color: var(--text-secondary);
+  flex: none;
+}
+.dash-kpi__icon--danger { background: var(--danger-soft); color: var(--danger-text); }
+.dash-kpi__foot {
+  min-height: 16px;
+}
+
+/* --- Grid de secciones (2 columnas asimétricas) --- */
+.dash-row {
+  display: grid;
+  gap: var(--gap-grid);
+  grid-template-columns: 2fr 1fr;
+  align-items: start;
+}
+
+.dash-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-5) var(--space-4);
+}
+.dash-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.dash-card__title { display: flex; align-items: center; gap: var(--space-2); }
+.dash-card__title h2 { margin: 0; }
+
+/* --- Trend chart (venta vs forecast) --- */
+.trend-chart { display: flex; flex-direction: column; gap: var(--space-2); }
+.trend-chart__axis {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 2px;
+}
+.trend-chart__tick { font-size: var(--fs-caption); color: var(--text-quaternary); transition: color var(--dur-fast) linear; }
+.trend-chart__tick--active { color: var(--text-primary); font-weight: var(--fw-semibold); }
+.trend-chart__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-top: var(--space-1);
+  font-size: var(--fs-footnote);
+  color: var(--text-secondary);
+}
+.trend-chart__legend-item { display: inline-flex; align-items: center; gap: var(--space-2); }
+.trend-chart__dot { width: 9px; height: 9px; border-radius: var(--radius-circle); flex: none; }
+
+/* --- Mini-tendencias por canal (bajo el chart principal) --- */
+.dash-canal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-4);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+}
+.dash-canal-mini { display: flex; flex-direction: column; gap: 2px; }
+.dash-canal-mini__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+
+/* --- Feed de alertas --- */
+.dash-alerts { display: flex; flex-direction: column; gap: var(--space-1); }
+.dash-alert {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  transition: background var(--dur-instant) linear;
+}
+.dash-alert:hover { background: var(--bg-surface-3); }
+.dash-alert__info { flex: 1; min-width: 0; }
+.dash-alert__info p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; }
+
+/* --- Top ganadores --- */
+.dash-winners { display: flex; flex-direction: column; gap: var(--space-1); }
+.dash-winner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+}
+.dash-winner:hover { background: var(--bg-surface-3); }
+.dash-winner__rank {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: var(--radius-circle);
+  background: var(--bg-surface-3); color: var(--text-secondary);
+  font-size: var(--fs-caption); font-weight: var(--fw-bold); flex: none;
+}
+.dash-winner__info { flex: 1; min-width: 0; }
+.dash-winner__info p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; }
+.dash-winner__growth { display: inline-flex; align-items: center; gap: var(--space-1); font-weight: var(--fw-semibold); }
+
+.dash-familias { display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-2); }
+.dash-familia-bar { display: grid; grid-template-columns: 120px 1fr auto; align-items: center; gap: var(--space-3); }
+.dash-familia-bar__track { height: 8px; border-radius: var(--radius-pill); background: var(--bg-surface-3); overflow: hidden; }
+.dash-familia-bar__fill { height: 100%; border-radius: var(--radius-pill); background: var(--ai-gradient); }
+
+/* --- Mapa de salud por corredor --- */
+.heat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--space-3);
+}
+.heat-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+.heat-cell__label { font-size: var(--fs-caption); font-weight: var(--fw-semibold); color: var(--text-secondary); }
+.heat-cell__value { font-size: var(--fs-h3); font-weight: var(--fw-bold); }
+.heat-cell__sublabel { font-size: var(--fs-caption); color: var(--text-tertiary); }
+.heat-cell--ok      { background: var(--sem-ok-bg); }
+.heat-cell--ok .heat-cell__value      { color: var(--success-text); }
+.heat-cell--warn    { background: var(--sem-warn-bg); }
+.heat-cell--warn .heat-cell__value    { color: var(--warning-text); }
+.heat-cell--stop    { background: var(--sem-stop-bg); }
+.heat-cell--stop .heat-cell__value    { color: var(--danger-text); }
+.heat-cell--neutral { background: var(--bg-surface-2); }
+
+.dash-badge-source { flex: none; }
+
+/* --- Responsive --- */
+@media (max-width: 1180px) {
+  .dash-kpis { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 980px) {
+  .dash-row { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .page-dashboard { padding: var(--space-5) var(--space-4); }
+  .dash-kpis { grid-template-columns: repeat(2, 1fr); }
+  .app-page-header { flex-direction: column; align-items: stretch; }
+}
