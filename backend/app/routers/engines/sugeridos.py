@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import math
 import uuid
 from datetime import datetime, timezone
@@ -254,6 +255,31 @@ def generar_sugeridos(
             "cobertura": cobertura,
         }
 
+    # RN-02: remanente transferible por (material_id, plant) ORIGEN. Se
+    # inicializa perezosamente con el excedente total de esa línea y se
+    # DECREMENTA cada vez que una línea deficitaria lo consume. Sin esto,
+    # cada línea deficitaria recalculaba el excedente completo del hermano
+    # desde cero -> el mismo excedente se prometía varias veces a distintos
+    # destinos (sobre-asignación detectada por QA 23-ago, ver waykee 290102).
+    remanente_transferible: dict[tuple[str, str], float] = {}
+
+    def _excedente_disponible(material_id: str, plant: str) -> float:
+        key = (material_id, plant)
+        if key not in remanente_transferible:
+            info_origen = info_por_linea.get(key)
+            if (
+                info_origen
+                and info_origen["cobertura"] is not None
+                and info_origen["cobertura"] > info_origen["row"]["meses_objetivo"]
+            ):
+                remanente_transferible[key] = round(
+                    (info_origen["cobertura"] - info_origen["row"]["meses_objetivo"]) * info_origen["demanda_mensual"],
+                    2,
+                )
+            else:
+                remanente_transferible[key] = 0.0
+        return remanente_transferible[key]
+
     items = []
     for r in candidatos:
         key = (r["material_id"], r["plant"])
@@ -275,22 +301,23 @@ def generar_sugeridos(
         cantidad_transferir = 0.0
         detalle_transferencias = []
         if r["corredor"]:
-            hermanos = [
-                (k, v) for k, v in info_por_linea.items()
+            hermanos_keys = [
+                k for k in info_por_linea
                 if k[0] == r["material_id"] and k[1] != r["plant"]
-                and v["row"]["corredor"] == r["corredor"]
-                and v["cobertura"] is not None and v["cobertura"] > v["row"]["meses_objetivo"]
+                and info_por_linea[k]["row"]["corredor"] == r["corredor"]
             ]
+            hermanos_keys.sort(key=lambda k: -_excedente_disponible(*k))
             restante = faltante_bruto
-            for (h_material, h_plant), h in sorted(hermanos, key=lambda kv: -kv[1]["cobertura"]):
+            for h_material, h_plant in hermanos_keys:
                 if restante <= 0:
                     break
-                excedente = round((h["cobertura"] - h["row"]["meses_objetivo"]) * h["demanda_mensual"], 2)
-                if excedente <= 0:
+                disponible = _excedente_disponible(h_material, h_plant)
+                if disponible <= 0:
                     continue
-                usar = min(excedente, restante)
+                usar = min(disponible, restante)
                 cantidad_transferir += usar
                 restante -= usar
+                remanente_transferible[(h_material, h_plant)] = round(disponible - usar, 2)
                 detalle_transferencias.append({"desde_plant": h_plant, "cantidad": round(usar, 2)})
             cantidad_transferir = round(cantidad_transferir, 2)
 
@@ -332,26 +359,7 @@ def generar_sugeridos(
             {"factor": "Restricción de empaque (MOQ/pallet)", "capa": "C1", "peso": 10},
         ]
 
-        row_id = str(uuid.uuid4())
-        now = _now()
-        db.execute(
-            """INSERT INTO sugeridos_generados (
-                id, material_id, plant, descripcion, abc, cobertura_actual, cobertura_objetivo,
-                cantidad_sugerida, cantidad_transferir, cantidad_comprar, cantidad_final,
-                costo_unitario, costo_estimado, confianza, tendencia, capa, explicacion, factores_json,
-                estado, creado, actualizado
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            [
-                row_id, r["material_id"], r["plant"], r["descripcion"], r["abc"],
-                round(cobertura, 2), objetivo, faltante_bruto, cantidad_transferir,
-                cantidad_comprar_bruta, cantidad_final, costo_unitario, costo_estimado, confianza,
-                tendencia, capa, explicacion, __import__("json").dumps(factores, ensure_ascii=False),
-                "propuesto", now, now,
-            ],
-        )
-
         items.append({
-            "id": row_id,
             "material_id": r["material_id"],
             "descripcion": r["descripcion"],
             "abc": r["abc"],
@@ -371,22 +379,57 @@ def generar_sugeridos(
             "capa": capa,
             "explicacion": explicacion,
             "factores": factores,
-            "estado": "propuesto",
+            "_faltante_bruto": faltante_bruto,
+            "_costo_unitario": costo_unitario,
         })
 
-    db.commit()
-
-    # Prioriza lo más crítico (menor cobertura primero) y pagina en memoria
-    # (el volumen de la demo es acotado; ver README para el corte real por SAP).
+    # Prioriza lo más crítico (menor cobertura primero); el orden/total
+    # corren sobre TODO el universo filtrado para que el ranking sea correcto,
+    # pero solo se PERSISTE/devuelve la página pedida (fix QA 23-ago: antes se
+    # insertaba el universo completo -~9.8k filas- en cada click, ignorando
+    # page_size y sin limpiar la tabla -> DB de 184MB y locks bajo concurrencia).
     items.sort(key=lambda x: x["cobertura_actual"])
     total = len(items)
     start = (page - 1) * page_size
+    pagina = items[start:start + page_size]
+
+    now = _now()
+    insert_rows = []
+    for it in pagina:
+        row_id = str(uuid.uuid4())
+        it["id"] = row_id
+        it["estado"] = "propuesto"
+        insert_rows.append((
+            row_id, it["material_id"], it["plant"], it["descripcion"], it["abc"],
+            it["cobertura_actual"], it["cobertura_objetivo"], it["_faltante_bruto"],
+            it["cantidad_transferir"], it["cantidad_comprar_bruta"], it["cantidad_final"],
+            it["_costo_unitario"], it["costo_estimado"], it["confianza"], it["tendencia"],
+            it["capa"], it["explicacion"], json.dumps(it["factores"], ensure_ascii=False),
+            "propuesto", now, now,
+        ))
+        del it["_faltante_bruto"], it["_costo_unitario"]
+
+    # DELETE previo (solo 'propuesto' — 'aprobado'/'rechazado' quedan como
+    # historial/auditoría intactos) + executemany en UNA sola transacción.
+    db.execute("DELETE FROM sugeridos_generados WHERE estado = 'propuesto'")
+    if insert_rows:
+        db.executemany(
+            """INSERT INTO sugeridos_generados (
+                id, material_id, plant, descripcion, abc, cobertura_actual, cobertura_objetivo,
+                cantidad_sugerida, cantidad_transferir, cantidad_comprar, cantidad_final,
+                costo_unitario, costo_estimado, confianza, tendencia, capa, explicacion, factores_json,
+                estado, creado, actualizado
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            insert_rows,
+        )
+    db.commit()
+
     return {
         "total": total,
         "page": page,
         "page_size": page_size,
-        "items": items[start:start + page_size],
-        "generado": _now(),
+        "items": pagina,
+        "generado": now,
     }
 
 
@@ -403,9 +446,8 @@ def lista_sugeridos(
         f"""SELECT * FROM sugeridos_generados {where} ORDER BY actualizado DESC""",
         params,
     ).fetchall()
-    import json as _json
     for r in rows:
-        r["factores"] = _json.loads(r.pop("factores_json") or "[]")
+        r["factores"] = json.loads(r.pop("factores_json") or "[]")
     return {"items": rows}
 
 
