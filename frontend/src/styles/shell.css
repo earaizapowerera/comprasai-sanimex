@@ -1,0 +1,226 @@
+/* ============================================================================
+   App Shell — topbar + sidebar (ver UX-SPEC.md §3 "Layout global (app shell)")
+   Construido 100% sobre design-tokens.css / components.css.
+   ============================================================================ */
+
+.app-shell {
+  min-height: 100vh;
+  background: var(--bg-app);
+  display: flex;
+  flex-direction: column;
+}
+
+/* --- Topbar --- */
+.app-topbar {
+  height: var(--topbar-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding: 0 var(--space-6);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-default);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+}
+
+.app-topbar__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+  color: var(--text-primary);
+}
+.app-topbar__logo {
+  display: inline-flex;
+  color: var(--accent);
+}
+.app-topbar__title {
+  font-size: var(--fs-callout);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--ls-tight);
+}
+.app-topbar__subtitle {
+  font-size: var(--fs-footnote);
+  color: var(--text-tertiary);
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--border-default);
+}
+
+.app-topbar__search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 auto;
+  max-width: 360px;
+  height: var(--control-h-md);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+  background: var(--bg-inset);
+  color: var(--text-tertiary);
+  font-size: var(--fs-footnote);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.app-topbar__search:hover,
+.app-topbar__search:focus-visible {
+  outline: none;
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-focus);
+}
+.app-topbar__search span { flex: 1; text-align: left; }
+.app-topbar__search kbd {
+  font-family: var(--font-sans);
+  font-size: var(--fs-caption2);
+  color: var(--text-quaternary);
+  background: var(--bg-surface-3);
+  border-radius: var(--radius-xs);
+  padding: 2px 6px;
+}
+
+.app-topbar__actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.app-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-h-md);
+  height: var(--control-h-md);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.app-icon-btn:hover { background: var(--bg-surface-3); color: var(--text-primary); }
+.app-icon-btn:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+
+.app-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-circle);
+  background: var(--accent-soft);
+  color: var(--accent-soft-text);
+}
+
+/* --- Body: sidebar + content --- */
+.app-body {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+}
+
+.app-sidebar {
+  flex: none;
+  width: var(--sidebar-w);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-3);
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border-default);
+  transition: width var(--dur-base) var(--ease-out);
+}
+.app-shell--collapsed .app-sidebar { width: var(--sidebar-w-collapsed); }
+
+.app-nav { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+
+.app-nav__item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 40px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: var(--fs-footnote);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.app-nav__item:hover { background: var(--bg-surface-3); color: var(--text-primary); }
+.app-nav__item:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+.app-nav__icon { flex: none; }
+.app-nav__label { overflow: hidden; text-overflow: ellipsis; }
+.app-shell--collapsed .app-nav__label,
+.app-shell--collapsed .app-nav__spark { display: none; }
+
+.app-nav__item--active {
+  background: var(--accent-soft);
+  color: var(--accent-soft-text);
+  font-weight: var(--fw-semibold);
+}
+.app-nav__item--active::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+}
+.app-shell--collapsed .app-nav__item--active::before { left: -9px; }
+
+.app-nav__item--ai.app-nav__item--active {
+  background: var(--ai-soft);
+  color: var(--ai-soft-text);
+}
+.app-nav__item--ai.app-nav__item--active::before { background: var(--ai); }
+.app-nav__spark { margin-left: auto; font-size: 12px; }
+
+.app-sidebar__collapse {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 40px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: var(--fs-footnote);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.app-sidebar__collapse:hover { background: var(--bg-surface-3); color: var(--text-primary); }
+.app-sidebar__collapse:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+
+.app-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: var(--page-max-w);
+  width: 100%;
+  margin: 0 auto;
+  padding: var(--space-8) var(--page-pad-x);
+}
+
+.app-page-header {
+  margin-bottom: var(--gap-section);
+}
+.app-page-header__title { margin: 0 0 var(--space-1); color: var(--text-primary); }
+.app-page-header__subtitle { margin: 0; color: var(--text-tertiary); font-size: var(--fs-body); }
+
+/* --- Responsivo (ver UX-SPEC.md §5) --- */
+@media (max-width: 1279px) {
+  .app-sidebar { width: var(--sidebar-w-collapsed); }
+  .app-sidebar .app-nav__label,
+  .app-sidebar .app-nav__spark { display: none; }
+  .app-topbar__search { display: none; }
+}
+@media (max-width: 767px) {
+  .app-content { padding: var(--space-5); }
+}
