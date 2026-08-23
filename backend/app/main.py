@@ -18,8 +18,10 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from app.core.agent_scope import AgentScopeMiddleware
 from app.core.config import AUTO_SEED_IF_MISSING, DB_PATH, FRONTEND_STATIC_DIR
 from app.core.db import get_connection, get_db
+from app.routers import agent as agent_router
 from app.routers import engines_status, inventarios, kpis, materiales, semaforo, sucursales, ventas
 from app.routers.engines import balanceos as engine_balanceos
 from app.routers.engines import chat_agente
@@ -33,7 +35,7 @@ logger = logging.getLogger("comprasai")
 app = FastAPI(
     title="ComprasAI Sanimex - API Core",
     description="Planeación Comercial, Inventarios y Abastecimiento con IA — Demo Fase 1",
-    version="0.1.0",
+    version="0.1.1",
 )
 
 app.add_middleware(
@@ -42,6 +44,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# T24 (waykee 290122): scope del rol "agente" (bot de Waykee) -- solo actúa
+# cuando el request trae X-Api-Key; el frontend/humano nunca manda ese
+# header, así que su comportamiento no cambia. Ver app/core/agent_scope.py.
+app.add_middleware(AgentScopeMiddleware)
 
 
 @app.on_event("startup")
@@ -76,6 +83,7 @@ def health():
     return {"status": "ok", "db_path": str(DB_PATH), "db_exists": DB_PATH.exists()}
 
 
+app.include_router(agent_router.router)
 app.include_router(materiales.router)
 app.include_router(sucursales.router)
 app.include_router(inventarios.router)
