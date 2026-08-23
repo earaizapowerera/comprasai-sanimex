@@ -1,0 +1,189 @@
+/* ============================================================================
+   Semáforo de Cumplimiento — Lite (T11) — estilos propios de página.
+   Construido 100% sobre design-tokens.css + components.css (no los duplica).
+   ============================================================================ */
+
+.page-semaforo {
+  max-width: var(--page-max-w);
+  margin: 0 auto;
+  padding: var(--gap-section) var(--page-pad-x);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-section);
+}
+
+.sf-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+}
+
+/* --- Filtros --- */
+.sf-filters {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+}
+
+.sf-chipgroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.sf-chipgroup__row {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.sf-combobox-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 190px;
+}
+.sf-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  cursor: pointer;
+  text-align: left;
+}
+.sf-select-trigger span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sf-umbral {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.sf-umbral__input {
+  width: 88px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Tarjetas grandes verde/amarillo/rojo --- */
+.sf-cards {
+  display: grid;
+  gap: var(--gap-grid);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.sf-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  text-align: left;
+  cursor: pointer;
+  border-width: 1px;
+  border-style: solid;
+  transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+  font-family: inherit;
+}
+.sf-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.sf-card:focus-visible { box-shadow: var(--shadow-focus); outline: none; }
+
+.sf-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+.sf-card__icon { font-size: 18px; line-height: 1; opacity: 0.85; }
+
+.sf-card__value {
+  font-size: var(--fs-display);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--ls-tighter);
+}
+.sf-card__sub {
+  font-size: var(--fs-footnote);
+  font-weight: var(--fw-semibold);
+  color: var(--text-secondary);
+}
+
+.sf-card--rojo     { border-color: color-mix(in srgb, var(--sem-stop) 35%, var(--border-default)); }
+.sf-card--amarillo { border-color: color-mix(in srgb, var(--sem-warn) 35%, var(--border-default)); }
+.sf-card--verde    { border-color: color-mix(in srgb, var(--sem-ok) 35%, var(--border-default)); }
+
+.sf-card--active {
+  box-shadow: var(--shadow-focus);
+}
+.sf-card--rojo.sf-card--active     { background: var(--sem-stop-bg); }
+.sf-card--amarillo.sf-card--active { background: var(--sem-warn-bg); }
+.sf-card--verde.sf-card--active    { background: var(--sem-ok-bg); }
+
+.sf-card--total {
+  cursor: default;
+  background: var(--bg-surface-2);
+}
+.sf-card--total:hover { transform: none; box-shadow: var(--shadow-sm); }
+
+/* --- Tabla principal --- */
+.sf-table-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5);
+}
+.sf-table-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.sf-table-card__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.sf-table-scroll {
+  max-height: 560px;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.sf-loading-more {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-4);
+}
+
+.sf-table-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.sf-table-skeleton__row {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  align-items: center;
+}
+
+.sf-cards-error {
+  padding: var(--space-5);
+}
+
+/* --- Responsive --- */
+@media (max-width: 720px) {
+  .page-semaforo { padding: var(--space-5) var(--space-4); }
+  .app-page-header { flex-direction: column; align-items: stretch; }
+  .sf-cards { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 480px) {
+  .sf-cards { grid-template-columns: 1fr; }
+}
