@@ -31,10 +31,16 @@ from hdbcli import dbapi
 
 random.seed(20260823)
 
-HANA_HOST = '192.168.99.77'
-HANA_PORT = 30215
-HANA_USER = 'EARAIZA'
-HANA_PASS = 'S@nimex-car_2026'
+HANA_HOST = os.environ.get('SANIMEX_CAR_HOST', '192.168.99.77')
+HANA_PORT = int(os.environ.get('SANIMEX_CAR_PORT', '30215'))
+# Credenciales SOLO por entorno (Waykee Secrets: {SanimexCARUser}/{SanimexCARPassword}).
+# Nunca hardcodear: este archivo vive en git.
+try:
+    HANA_USER = os.environ['SANIMEX_CAR_USER']
+    HANA_PASS = os.environ['SANIMEX_CAR_PASS']
+except KeyError as e:
+    sys.exit(f"Falta la variable de entorno {e}. Exporta SANIMEX_CAR_USER y "
+             f"SANIMEX_CAR_PASS (via Waykee Secrets) antes de ejecutar.")
 
 HERE = os.path.dirname(__file__)
 DB = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, 'comprasai.db')
