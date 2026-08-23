@@ -7,6 +7,26 @@ from app.core.db import get_db
 
 router = APIRouter(prefix="/api/kpis", tags=["kpis"])
 
+# Umbral mínimo de demanda mensual para considerarla "real" al calcular
+# cobertura_meses. El dataset REAL CAR trae demandas que pueden venir en 0
+# o en valores residuales ~1e-15 (ruido de punto flotante / redondeos de
+# origen); sin este guard, disponible_neto / demanda_prom con un
+# denominador ínfimo produce coberturas absurdas (del orden de 1e+15
+# meses). Por debajo de EPS tratamos la demanda como "sin dato" -> misma
+# semántica que demanda=0 (cobertura_meses=None, igual que en
+# /api/inventarios/cobertura, que el frontend renderiza como "sin_dato"/"—").
+EPS_DEMANDA = 1e-6
+
+
+def calcular_cobertura_meses(disponible_neto: float, demanda_prom: Optional[float]) -> Optional[float]:
+    """cobertura_meses = disponible_neto / demanda_prom, protegido contra
+    demanda ausente (None/0) o residual (~1e-15). Por debajo de EPS_DEMANDA
+    se retorna None ("sin dato"), el mismo sentinel que usa
+    /api/inventarios/cobertura y que el frontend renderiza como "sin_dato"/"—"."""
+    if demanda_prom is None or demanda_prom < EPS_DEMANDA:
+        return None
+    return disponible_neto / demanda_prom
+
 
 @router.get("")
 def get_kpis(
@@ -77,7 +97,7 @@ def get_kpis(
         demanda = r["demanda_prom"]
         disponible_neto = r["disponible_neto"]
         objetivo = r["meses_objetivo"] if r["meses_objetivo"] is not None else 2.0
-        cobertura_meses = (disponible_neto / demanda) if demanda and demanda > 0 else None
+        cobertura_meses = calcular_cobertura_meses(disponible_neto, demanda)
 
         if disponible_neto <= 0 or (cobertura_meses is not None and cobertura_meses < objetivo * 0.5):
             en_quiebre += 1
@@ -124,7 +144,7 @@ def list_compras_urgentes(
             ROUND(COALESCE(d.demanda_prom, 0), 2) AS demanda_prom,
             c.meses_objetivo,
             ROUND(
-                CASE WHEN d.demanda_prom > 0
+                CASE WHEN d.demanda_prom >= :eps
                      THEN (i.disponible + i.transito - i.comprometido) / d.demanda_prom
                      ELSE 0 END, 2
             ) AS cobertura_actual_meses,
@@ -135,10 +155,10 @@ def list_compras_urgentes(
         LEFT JOIN demanda d ON d.material_id = i.material_id AND d.plant = i.plant
         LEFT JOIN coberturas_objetivo c ON c.material_id = i.material_id
         LEFT JOIN proveedores p ON p.material_id = i.material_id
-        WHERE d.demanda_prom > 0
+        WHERE d.demanda_prom >= :eps
           AND ((i.disponible + i.transito - i.comprometido) / d.demanda_prom) < COALESCE(c.meses_objetivo, 2.0)
         ORDER BY cobertura_actual_meses ASC
-        LIMIT ?
+        LIMIT :limit
     """
-    rows = db.execute(sql, [limit]).fetchall()
+    rows = db.execute(sql, {"eps": EPS_DEMANDA, "limit": limit}).fetchall()
     return {"items": rows, "count": len(rows)}
