@@ -108,29 +108,112 @@ function Combobox({ label, value, options, onChange, placeholder }) {
   );
 }
 
+/** T19 (waykee 290116): la explicación mostraba una lista "factores" con
+ * pesos hardcodeados (40/25/15/10/10) que no salían de ningún cálculo real.
+ * Ahora se muestran los datos REALES que entraron en la fórmula del backend
+ * (datos_decision): serie de demanda, desglose de inventario, fórmula
+ * cobertura→faltante→redondeo, y el detalle de transferencias RN-02. */
+function SerieDemandaTabla({ serie }) {
+  if (!serie || serie.length === 0) return null;
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div className="footnote text-secondary" style={{ marginBottom: 4 }}>
+        Demanda últimos {serie.length} meses (cajas)
+      </div>
+      <table className="table table--compact">
+        <thead>
+          <tr>
+            {serie.map((p) => (
+              <th key={p.anio_mes} className="num">{p.anio_mes}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            {serie.map((p) => (
+              <td key={p.anio_mes} className="num tnum">{fmtInt.format(p.cajas)}</td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function ExplainPanel({ row, onClose }) {
   if (!row) return null;
+  const dd = row.datos_decision;
+  const tieneDatosDecision = !!(dd && Object.keys(dd).length > 0);
+  const inv = dd?.inventario || {};
+  const prov = dd?.proveedor || {};
+  const red = dd?.redondeo || {};
+  const trans = dd?.transferencia || { cantidad_transferir: row.cantidad_transferir, detalle_transferencias: row.detalle_transferencias };
+
   return (
-    <aside className="card card--elevated" style={{ position: "sticky", top: 84, alignSelf: "flex-start", width: 340, flexShrink: 0 }}>
+    <aside className="card card--elevated" style={{ position: "sticky", top: 84, alignSelf: "flex-start", width: 380, flexShrink: 0 }}>
       <div className="ai-explain">
         <div className="ai-explain__head">
           ✨ Por qué se sugiere esta cantidad
           <span className={`layer layer--${(row.capa || "c1").toLowerCase()}`}>{row.capa}</span>
         </div>
         <p className="body" style={{ marginTop: 12, marginBottom: 0 }}>{row.explicacion}</p>
-        {(row.factores || []).map((f) => (
-          <div key={f.factor} className="ai-factor" title={`Capa ${f.capa}`}>
-            <span className="footnote" style={{ width: 168, flexShrink: 0 }}>{f.factor}</span>
-            <span className="ai-factor__bar">
-              <span className="ai-factor__fill" style={{ width: `${f.peso}%` }} />
-            </span>
-            <span className="footnote tnum" style={{ width: 32, textAlign: "right" }}>{f.peso}%</span>
+
+        {inv.sobrevendido && (
+          <div className="footnote" style={{ marginTop: 10, color: "var(--danger-text)", fontWeight: "var(--fw-semibold)" }}>
+            ⚠ Sobrevendido {fmtInt.format(Math.abs(inv.disponible_neto))} cajas (comprometido excede stock)
           </div>
-        ))}
-        {row.detalle_transferencias && row.detalle_transferencias.length > 0 && (
-          <div className="footnote" style={{ marginTop: 12, color: "var(--text-secondary)" }}>
-            Transferencias: {row.detalle_transferencias.map((d) => `${d.desde_plant} (${fmtInt.format(d.cantidad)})`).join(", ")}
-          </div>
+        )}
+
+        {tieneDatosDecision ? (
+          <>
+            <SerieDemandaTabla serie={dd.serie_demanda} />
+            <div className="caption text-tertiary" style={{ marginTop: 2 }}>
+              Promedio 3m: {fmtInt.format(dd.demanda_promedio_3m || 0)} caj/mes · {dd.meses_con_venta ?? "—"}/{dd.meses_historia ?? 6} meses con venta
+            </div>
+
+            <div style={{ marginTop: 14 }}>
+              <div className="footnote text-secondary" style={{ marginBottom: 4 }}>Inventario (cajas)</div>
+              <div className="footnote" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+                <span>Disponible: <strong className="tnum">{fmtInt.format(inv.disponible || 0)}</strong></span>
+                <span>Tránsito: <strong className="tnum">{fmtInt.format(inv.transito || 0)}</strong></span>
+                <span>Comprometido: <strong className="tnum">{fmtInt.format(inv.comprometido || 0)}</strong></span>
+                <span>Neto: <strong className="tnum">{fmtInt.format(inv.disponible_neto || 0)}</strong></span>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 14 }}>
+              <div className="footnote text-secondary" style={{ marginBottom: 4 }}>Fórmula</div>
+              <div className="footnote">
+                Cobertura actual <strong className="tnum">{dd.cobertura_actual?.toFixed?.(1) ?? "—"}</strong> vs objetivo{" "}
+                <strong className="tnum">{dd.meses_objetivo ?? "—"}</strong> meses → faltante bruto{" "}
+                <strong className="tnum">{fmtInt.format(dd.faltante_bruto || 0)}</strong> cajas
+              </div>
+              {trans.cantidad_transferir > 0 && (
+                <div className="footnote" style={{ marginTop: 4, color: "var(--text-secondary)" }}>
+                  − {fmtInt.format(trans.cantidad_transferir)} cajas por transferencia (RN-02):{" "}
+                  {(trans.detalle_transferencias || []).map((d) => `${d.desde_plant} (${fmtInt.format(d.cantidad)})`).join(", ")}
+                </div>
+              )}
+              <div className="footnote" style={{ marginTop: 4 }}>
+                Compra bruta <strong className="tnum">{fmtInt.format(red.cantidad_comprar_bruta || 0)}</strong> → final{" "}
+                <strong className="tnum">{fmtInt.format(red.cantidad_final ?? row.cantidad_final)}</strong> cajas
+              </div>
+              {red.motivo && <div className="caption text-tertiary" style={{ marginTop: 2 }}>{red.motivo}</div>}
+            </div>
+
+            <div style={{ marginTop: 14 }}>
+              <div className="footnote text-secondary" style={{ marginBottom: 4 }}>Proveedor</div>
+              <div className="footnote">
+                {prov.nombre || "s/proveedor"} · MOQ {prov.moq_cajas ?? "—"} caj · Pallet {prov.cajas_por_pallet ?? "—"} caj · Lead time {prov.lead_time_dias ?? "—"} días
+              </div>
+            </div>
+          </>
+        ) : (
+          row.detalle_transferencias && row.detalle_transferencias.length > 0 && (
+            <div className="footnote" style={{ marginTop: 12, color: "var(--text-secondary)" }}>
+              Transferencias: {row.detalle_transferencias.map((d) => `${d.desde_plant} (${fmtInt.format(d.cantidad)})`).join(", ")}
+            </div>
+          )
         )}
       </div>
       <div className="footnote text-tertiary" style={{ marginTop: 12 }}>

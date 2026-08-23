@@ -114,6 +114,92 @@ def calc_confianza(meses_con_venta: int, meses_totales: int) -> int:
     return int(round(50 + cobertura_historial * 45))
 
 
+def calc_motivo_redondeo(
+    bruta: float, tras_moq: float, final: float, moq: int, cajas_por_pallet: Optional[int]
+) -> str:
+    """T19 (waykee 290116): texto determinista de POR QUÉ se llegó de la
+    cantidad bruta a comprar (faltante - transferencia) a la cantidad final,
+    en términos de los redondeos RF-011 (MOQ/empaque) y RF-016 (pallet)
+    REALMENTE aplicados -- no una etiqueta genérica."""
+    if bruta <= 0:
+        return "Sin compra: el faltante quedó cubierto por transferencia (RN-02)."
+    partes = []
+    if tras_moq > bruta:
+        partes.append(f"se sube de {bruta:.0f} a {tras_moq:.0f} cajas por MOQ mínimo del proveedor ({moq} cajas)")
+    if final > tras_moq:
+        partes.append(f"se redondea de {tras_moq:.0f} a {final:.0f} cajas por múltiplo de pallet ({cajas_por_pallet} cajas/pallet)")
+    if not partes:
+        return f"Sin ajuste: {bruta:.0f} cajas ya cumple MOQ ({moq}) y pallet ({cajas_por_pallet})."
+    texto = "; ".join(partes)
+    return texto[0].upper() + texto[1:] + "."
+
+
+def build_datos_decision(
+    *,
+    serie_pts: list[tuple[str, float]],
+    demanda_promedio_3m: float,
+    meses_con_venta: int,
+    meses_historia: int,
+    disponible: float,
+    transito: float,
+    comprometido: float,
+    disponible_neto: float,
+    cobertura_actual: Optional[float],
+    meses_objetivo: float,
+    faltante_bruto: float,
+    proveedor: Optional[str],
+    moq_cajas: int,
+    cajas_por_pallet: int,
+    lead_time_dias: int,
+    m2_por_caja: Optional[float],
+    costo_unitario: float,
+    cantidad_transferir: float,
+    detalle_transferencias: list[dict],
+    cantidad_comprar_bruta: float,
+    cantidad_tras_moq: float,
+    cantidad_final: float,
+) -> dict:
+    """T19 (waykee 290116): inputs REALES que entraron en la fórmula del
+    sugerido -- reemplaza los pesos hardcodeados de 'factores' (40/25/15/10/10,
+    waykee 290116 msg inicial) que no salían de ningún cálculo. Cada campo de
+    este dict es trazable a una variable ya calculada en generar_sugeridos(),
+    no un valor inventado."""
+    return {
+        "serie_demanda": [{"anio_mes": anio_mes, "cajas": cajas} for anio_mes, cajas in serie_pts],
+        "demanda_promedio_3m": round(demanda_promedio_3m, 2),
+        "meses_con_venta": meses_con_venta,
+        "meses_historia": meses_historia,
+        "inventario": {
+            "disponible": disponible or 0,
+            "transito": transito or 0,
+            "comprometido": comprometido or 0,
+            "disponible_neto": disponible_neto,
+            "sobrevendido": disponible_neto < 0,
+        },
+        "cobertura_actual": round(cobertura_actual, 2) if cobertura_actual is not None else None,
+        "meses_objetivo": meses_objetivo,
+        "faltante_bruto": faltante_bruto,
+        "proveedor": {
+            "nombre": proveedor,
+            "moq_cajas": moq_cajas,
+            "cajas_por_pallet": cajas_por_pallet,
+            "lead_time_dias": lead_time_dias,
+        },
+        "m2_por_caja": m2_por_caja,
+        "costo_unitario": costo_unitario,
+        "transferencia": {
+            "cantidad_transferir": cantidad_transferir,
+            "detalle_transferencias": detalle_transferencias,
+        },
+        "redondeo": {
+            "cantidad_comprar_bruta": cantidad_comprar_bruta,
+            "cantidad_tras_moq": cantidad_tras_moq,
+            "cantidad_final": cantidad_final,
+            "motivo": calc_motivo_redondeo(cantidad_comprar_bruta, cantidad_tras_moq, cantidad_final, moq_cajas, cajas_por_pallet),
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # Persistencia ligera del workflow (Borrador/Propuesto/Aprobado/Rechazado).
 # Tabla adicional, aditiva al esquema de T3 (CREATE TABLE IF NOT EXISTS).
@@ -140,6 +226,7 @@ def _ensure_tables(db: sqlite3.Connection) -> None:
             capa                TEXT,
             explicacion         TEXT,
             factores_json       TEXT,
+            datos_decision_json TEXT,
             estado              TEXT NOT NULL DEFAULT 'propuesto',
             justificacion_edicion TEXT,
             aprobado_por        TEXT,
@@ -147,6 +234,13 @@ def _ensure_tables(db: sqlite3.Connection) -> None:
             actualizado         TEXT NOT NULL
         )"""
     )
+    # T19 (waykee 290116): tablas ya creadas ANTES de este cambio no tienen
+    # datos_decision_json (CREATE TABLE IF NOT EXISTS no la agrega
+    # retroactivamente) -- migración aditiva idempotente, mismo patrón con el
+    # que esta tabla se sumó sobre el esquema de T3 sin tocar datos existentes.
+    cols = {row["name"] for row in db.execute("PRAGMA table_info(sugeridos_generados)")}
+    if "datos_decision_json" not in cols:
+        db.execute("ALTER TABLE sugeridos_generados ADD COLUMN datos_decision_json TEXT")
     db.commit()
 
 
@@ -342,8 +436,8 @@ def generar_sugeridos(
 
         cantidad_comprar_bruta = round(max(0.0, faltante_bruto - cantidad_transferir), 2)
 
-        cantidad_final = calc_redondeo_moq(cantidad_comprar_bruta, int(r["moq_cajas"]))
-        cantidad_final = calc_redondeo_pallet(cantidad_final, int(r["cajas_por_pallet"]))
+        cantidad_tras_moq = calc_redondeo_moq(cantidad_comprar_bruta, int(r["moq_cajas"]))
+        cantidad_final = calc_redondeo_pallet(cantidad_tras_moq, int(r["cajas_por_pallet"]))
 
         serie_pts = serie.get(key, [])[-MESES_HISTORIA:]
         tendencia = calc_tendencia([v for _, v in serie_pts])
@@ -370,13 +464,30 @@ def generar_sugeridos(
             partes_explicacion.append("La demanda muestra tendencia a la baja en el último mes.")
         explicacion = " ".join(partes_explicacion)
 
-        factores = [
-            {"factor": "Demanda proyectada", "capa": "C2", "peso": 40},
-            {"factor": "Cobertura objetivo", "capa": "C1", "peso": 25},
-            {"factor": "Lead time del proveedor", "capa": "C1", "peso": 15},
-            {"factor": "Estacionalidad / tendencia", "capa": "C2", "peso": 10},
-            {"factor": "Restricción de empaque (MOQ/pallet)", "capa": "C1", "peso": 10},
-        ]
+        datos_decision = build_datos_decision(
+            serie_pts=serie_pts,
+            demanda_promedio_3m=dem,
+            meses_con_venta=meses_con_venta,
+            meses_historia=MESES_HISTORIA,
+            disponible=r["disponible"],
+            transito=r["transito"],
+            comprometido=r["comprometido"],
+            disponible_neto=info["disponible_neto"],
+            cobertura_actual=cobertura,
+            meses_objetivo=objetivo,
+            faltante_bruto=faltante_bruto,
+            proveedor=r["proveedor"],
+            moq_cajas=int(r["moq_cajas"]),
+            cajas_por_pallet=int(r["cajas_por_pallet"]),
+            lead_time_dias=r["lead_time_dias"],
+            m2_por_caja=r["m2_por_caja"],
+            costo_unitario=costo_unitario,
+            cantidad_transferir=cantidad_transferir,
+            detalle_transferencias=detalle_transferencias,
+            cantidad_comprar_bruta=cantidad_comprar_bruta,
+            cantidad_tras_moq=cantidad_tras_moq,
+            cantidad_final=cantidad_final,
+        )
 
         items.append({
             "material_id": r["material_id"],
@@ -397,7 +508,7 @@ def generar_sugeridos(
             "tendencia": tendencia,
             "capa": capa,
             "explicacion": explicacion,
-            "factores": factores,
+            "datos_decision": datos_decision,
             "_faltante_bruto": faltante_bruto,
             "_costo_unitario": costo_unitario,
         })
@@ -423,7 +534,13 @@ def generar_sugeridos(
             it["cobertura_actual"], it["cobertura_objetivo"], it["_faltante_bruto"],
             it["cantidad_transferir"], it["cantidad_comprar_bruta"], it["cantidad_final"],
             it["_costo_unitario"], it["costo_estimado"], it["confianza"], it["tendencia"],
-            it["capa"], it["explicacion"], json.dumps(it["factores"], ensure_ascii=False),
+            it["capa"], it["explicacion"],
+            # T19 (waykee 290116): "factores" (pesos hardcodeados 40/25/15/10/10)
+            # se elimina -- ya no se genera ni se inventa nada en su lugar; la
+            # columna queda vacía ("[]") solo por compatibilidad de esquema con
+            # filas históricas. datos_decision_json es la fuente real ahora.
+            "[]",
+            json.dumps(it["datos_decision"], ensure_ascii=False),
             "propuesto", now, now,
         ))
         del it["_faltante_bruto"], it["_costo_unitario"]
@@ -437,8 +554,8 @@ def generar_sugeridos(
                 id, material_id, plant, descripcion, abc, cobertura_actual, cobertura_objetivo,
                 cantidad_sugerida, cantidad_transferir, cantidad_comprar, cantidad_final,
                 costo_unitario, costo_estimado, confianza, tendencia, capa, explicacion, factores_json,
-                estado, creado, actualizado
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                datos_decision_json, estado, creado, actualizado
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             insert_rows,
         )
     db.commit()
@@ -466,7 +583,11 @@ def lista_sugeridos(
         params,
     ).fetchall()
     for r in rows:
-        r["factores"] = json.loads(r.pop("factores_json") or "[]")
+        # T19 (waykee 290116): factores_json queda como columna muerta
+        # (compatibilidad con filas históricas) -- ya no se expone al
+        # frontend; datos_decision_json es la fuente real de la explicación.
+        r.pop("factores_json", None)
+        r["datos_decision"] = json.loads(r.pop("datos_decision_json", None) or "{}")
     return {"items": rows}
 
 
