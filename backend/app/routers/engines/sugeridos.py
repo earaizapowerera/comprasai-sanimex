@@ -255,6 +255,20 @@ def generar_sugeridos(
             "cobertura": cobertura,
         }
 
+    # Índice material+corredor -> lista de plants, precomputado UNA vez.
+    # Antes cada línea deficitaria escaneaba TODO info_por_linea buscando a
+    # sus hermanos de corredor (O(n²): con el universo sin filtrar, ~9.8k
+    # líneas deficitarias x ~18k pares = ~180M iteraciones en Python puro,
+    # >2 min por request) -> bajo concurrencia esto es lo que realmente
+    # agotaba el busy_timeout de SQLite y producía "database is locked",
+    # no solo el volumen de INSERTs. Con el índice, cada línea solo mira a
+    # sus hermanos reales (O(1) promedio).
+    plants_por_material_corredor: dict[tuple[str, str], list[tuple[str, str]]] = {}
+    for k, v in info_por_linea.items():
+        corredor_h = v["row"]["corredor"]
+        if corredor_h:
+            plants_por_material_corredor.setdefault((k[0], corredor_h), []).append(k)
+
     # RN-02: remanente transferible por (material_id, plant) ORIGEN. Se
     # inicializa perezosamente con el excedente total de esa línea y se
     # DECREMENTA cada vez que una línea deficitaria lo consume. Sin esto,
@@ -302,9 +316,8 @@ def generar_sugeridos(
         detalle_transferencias = []
         if r["corredor"]:
             hermanos_keys = [
-                k for k in info_por_linea
-                if k[0] == r["material_id"] and k[1] != r["plant"]
-                and info_por_linea[k]["row"]["corredor"] == r["corredor"]
+                k for k in plants_por_material_corredor.get((r["material_id"], r["corredor"]), [])
+                if k[1] != r["plant"]
             ]
             hermanos_keys.sort(key=lambda k: -_excedente_disponible(*k))
             restante = faltante_bruto
