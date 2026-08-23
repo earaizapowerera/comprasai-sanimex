@@ -68,6 +68,7 @@ def _init_engine_tables() -> None:
     with get_connection() as conn:
         engine_remates.init_tables(conn)
         engine_balanceos.init_tables(conn)
+        engine_balanceos.warm_cache(conn)  # evita que el primer usuario pague el cómputo (~2-3s)
 
 
 @app.get("/api/health", tags=["health"])

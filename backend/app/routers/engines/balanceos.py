@@ -186,14 +186,26 @@ def _compute_all_propuestas(db: sqlite3.Connection, costo_por_corredor: dict) ->
 def _get_cached_propuestas(db: sqlite3.Connection) -> list[dict]:
     costo_por_corredor = _costo_traslado_por_corredor(db)
     snapshot = tuple(sorted(costo_por_corredor.items()))
+    # El lock envuelve TODO el cómputo (no solo el check) — si se libera
+    # antes de terminar de calcular, N requests concurrentes con cache fría
+    # ven "propuestas is None" a la vez y las N recalculan en paralelo
+    # (thundering herd), exactamente el problema de performance original
+    # (visto en vivo: 8 concurrentes -> 25s+ cada una). Con el lock
+    # cerrado durante el cálculo, la 2a..Na request simplemente esperan y
+    # reciben el resultado ya cacheado de la 1a.
     with _cache_lock:
         if _cache["propuestas"] is not None and _cache["costo_por_corredor_snapshot"] == snapshot:
             return _cache["propuestas"]
-    propuestas = _compute_all_propuestas(db, costo_por_corredor)
-    with _cache_lock:
+        propuestas = _compute_all_propuestas(db, costo_por_corredor)
         _cache["propuestas"] = propuestas
         _cache["costo_por_corredor_snapshot"] = snapshot
-    return propuestas
+        return propuestas
+
+
+def warm_cache(db: sqlite3.Connection) -> None:
+    """Precalienta la cache en el startup de la app para que la primera
+    request real de un usuario (o de QA) no pague el costo del cómputo."""
+    _get_cached_propuestas(db)
 
 
 @router.get("/propuestas")
