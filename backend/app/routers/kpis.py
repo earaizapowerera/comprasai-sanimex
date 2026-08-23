@@ -66,19 +66,27 @@ def get_kpis(
             "pares_en_quiebre": 0,
         }
 
-    en_quiebre = sum(1 for r in rows if r["disponible_neto"] <= 0)
-    fill_rate = round(100 * (n_pares - en_quiebre) / n_pares, 2)
-
+    # Misma definición de quiebre que /api/inventarios/cobertura (fix QA
+    # 23-ago): antes solo contaba disponible_neto<=0 (daba 0 quiebres / fill
+    # 100%), ignorando cobertura muy por debajo del objetivo -> contradecía
+    # el Dashboard mostrando 100% fill con miles de compras urgentes.
+    en_quiebre = 0
     coberturas = []
     urgentes = 0
     for r in rows:
         demanda = r["demanda_prom"]
-        cobertura = (r["disponible_neto"] / demanda) if demanda and demanda > 0 else 0.0
-        coberturas.append(max(cobertura, 0.0))
+        disponible_neto = r["disponible_neto"]
         objetivo = r["meses_objetivo"] if r["meses_objetivo"] is not None else 2.0
-        if demanda and demanda > 0 and cobertura < objetivo:
+        cobertura_meses = (disponible_neto / demanda) if demanda and demanda > 0 else None
+
+        if disponible_neto <= 0 or (cobertura_meses is not None and cobertura_meses < objetivo * 0.5):
+            en_quiebre += 1
+
+        coberturas.append(cobertura_meses if cobertura_meses is not None else 0.0)
+        if cobertura_meses is not None and cobertura_meses < objetivo:
             urgentes += 1
 
+    fill_rate = round(100 * (n_pares - en_quiebre) / n_pares, 2)
     cobertura_prom = round(sum(coberturas) / len(coberturas), 2) if coberturas else 0.0
     valor_inventario = round(sum((r["disponible"] or 0) * (r["costo"] or 0) for r in rows), 2)
 
