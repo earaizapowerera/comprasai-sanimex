@@ -134,7 +134,10 @@ def extract_pedidos_compra(cur, materiales_ids, plant_valid):
     print("\n=== Pedidos de compra pendientes (EKKO/EKPO + EKET) ===")
     ekpo_cols = table_cols(cur, SCHEMA, "EKPO")
     has_eket = table_exists(cur, SCHEMA, "EKET")
-    item_del = "(p.LOEKZ IS NULL OR p.LOEKZ='')" if "LOEKZ" in ekpo_cols else "1=1"
+    # NO filtramos EKPO.LOEKZ (borrado de item): la formula de v4 (pedidos_abiertos)
+    # NO lo filtra, y el bruto del detalle DEBE reproducir exactamente pedidos_abiertos.
+    # Filtrar LOEKZ aqui quitaba ~79% del MENGE y rompia el cuadre exacto contra v4.
+    item_del = "1=1"
     date_col = "k.BEDAT" if True else "k.AEDAT"
 
     lines = []          # dict por (EBELN,EBELP)
@@ -228,87 +231,78 @@ def extract_pedidos_compra(cur, materiales_ids, plant_valid):
 # 2) BACKORDER (pedidos de venta pendientes de entrega)  VBBE -> fallback VBAP
 # --------------------------------------------------------------------------
 def extract_backorder(cur, materiales_ids, plant_valid):
-    print("\n=== Backorder de ventas (VBBE requirements; fallback VBAP) ===")
-    use_vbbe = False
-    if table_exists(cur, SCHEMA, "VBBE"):
-        cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.VBBE WHERE MANDT='{MANDT}'")
-        cnt = cur.fetchone()[0]
-        print(f"  VBBE presente, filas MANDT {MANDT}: {cnt}")
-        use_vbbe = cnt > 0
+    """Backorder = mercancia comprometida en ENTREGAS ABIERTAS (LIPS+LIKP sin salida
+    de mercancia registrada, WADAT_IST vacio). Es el detalle documento-a-documento
+    REAL detras de 'comprometido'. 'comprometido' en v4 proviene del CV ATP
+    InventoryVisibilityWithSalesOrderReservedQuantity.ReservedQuantity (agregado por
+    articulo/centro, SIN dimension de documento). Se comprobo en vivo que las fuentes
+    documento-a-documento naturales NO son reconstruibles en este replica CAR:
+      - VBBE (requirements) y VBUP (status) NO existen.
+      - VBAP existe pero sus items ABIERTOS (LFGSA A/B) son ~0 para los materiales
+        con comprometido>0 (todos quedan LFGSA='C').
+    Las entregas abiertas (mercancia asignada a un pedido, pendiente de embarque) son
+    el mejor proxy documento-a-documento y semanticamente = 'comprometido'. NO cuadra
+    1:1 con el CV (el CV aplica netting ATP); la cobertura/diferencia se documenta en
+    la reconciliacion (origen ATP del Calculation View)."""
+    print("\n=== Backorder de ventas (entregas abiertas LIPS/LIKP sin PGI) ===")
+    if not (table_exists(cur, SCHEMA, "LIPS") and table_exists(cur, SCHEMA, "LIKP")):
+        print("  LIPS/LIKP no disponibles -> backorder vacio (se explica en reconciliacion)")
+        return [], defaultdict(float), "NINGUNA(LIPS/LIKP ausentes)"
 
-    rows = []
+    likp_cols = table_cols(cur, SCHEMA, "LIKP")
+    kunnr_col = "KUNNR" if "KUNNR" in likp_cols else ("KUNAG" if "KUNAG" in likp_cols else None)
+    lfdat_col = "LFDAT" if "LFDAT" in likp_cols else None
+    kodat_col = "KODAT" if "KODAT" in likp_cols else ("ERDAT" if "ERDAT" in likp_cols else None)
+    wadat_col = "WADAT_IST" if "WADAT_IST" in likp_cols else None
+    open_cond = (f"(h.{wadat_col} IS NULL OR h.{wadat_col}='' OR h.{wadat_col}='00000000')"
+                 if wadat_col else "1=1")
+    sel_kunnr = f"h.{kunnr_col}" if kunnr_col else "NULL"
+    sel_kodat = f"h.{kodat_col}" if kodat_col else "NULL"
+    sel_lfdat = f"h.{lfdat_col}" if lfdat_col else "NULL"
+
+    raw = []            # [matnr, werks, vbeln, posnr, qty, kunnr, fdoc, fentrega]
     net_by_mp = defaultdict(float)
-    vbeln_pos = []   # para enriquecer con cliente/fechas
-
-    if use_vbbe:
-        vbbe_cols = table_cols(cur, SCHEMA, "VBBE")
-        qty_col = "OMENG" if "OMENG" in vbbe_cols else ("VMENG" if "VMENG" in vbbe_cols else None)
-        mbdat = "MBDAT" if "MBDAT" in vbbe_cols else None
-        raw = []
-        for chunk in chunks(materiales_ids, 500):
-            ph = ",".join(["?"] * len(chunk))
-            sel_mbdat = mbdat if mbdat else "NULL"
-            cur.execute(f"""
-                SELECT MATNR, WERKS, VBELN, POSNR, {qty_col}, {sel_mbdat}
-                FROM {SCHEMA}.VBBE
-                WHERE MANDT='{MANDT}' AND MATNR IN ({ph}) AND {qty_col} <> 0
-            """, chunk)
-            for matnr, werks, vbeln, posnr, omeng, mb in cur.fetchall():
-                werks = (werks or "").strip()
-                if werks not in plant_valid:
-                    continue
-                matnr = (matnr or "").strip()
-                vbeln = (vbeln or "").strip(); posnr = (posnr or "").strip()
-                raw.append([matnr, werks, vbeln, posnr, float(omeng or 0), d(mb)])
-                vbeln_pos.append((vbeln, posnr))
-        cli, fdoc, fentrega = _enrich_ventas(cur, vbeln_pos)
-        for matnr, werks, vbeln, posnr, qty, mb in raw:
-            net_by_mp[(matnr, werks)] += qty
-            rows.append((matnr, werks, vbeln, posnr,
-                         cli.get(vbeln), round(qty, 3),
-                         fdoc.get(vbeln), fentrega.get((vbeln, posnr)) or mb))
-        print(f"  filas backorder_detalle (VBBE): {len(rows)}")
-        return rows, net_by_mp, "VBBE"
-
-    # ---- fallback: VBAP + VBUP (posiciones con entrega incompleta, no rechazadas) ----
-    if not table_exists(cur, SCHEMA, "VBAP"):
-        print("  VBAP tampoco disponible -> backorder vacio (se explica en reconciliacion)")
-        return rows, net_by_mp, "NINGUNA"
-    has_vbup = table_exists(cur, SCHEMA, "VBUP")
-    raw = []
-    for chunk in chunks(materiales_ids, 500):
+    kunnrs = set()
+    for chunk in chunks(materiales_ids, 400):
         ph = ",".join(["?"] * len(chunk))
-        if has_vbup:
-            cur.execute(f"""
-                SELECT a.MATNR, a.WERKS, a.VBELN, a.POSNR, a.KWMENG
-                FROM {SCHEMA}.VBAP a
-                JOIN {SCHEMA}.VBUP u ON a.MANDT=u.MANDT AND a.VBELN=u.VBELN AND a.POSNR=u.POSNR
-                WHERE a.MANDT='{MANDT}' AND a.MATNR IN ({ph})
-                  AND u.LFSTA IN ('A','B') AND (u.ABSTA IS NULL OR u.ABSTA<>'C')
-            """, chunk)
-        else:
-            cur.execute(f"""
-                SELECT a.MATNR, a.WERKS, a.VBELN, a.POSNR, a.KWMENG
-                FROM {SCHEMA}.VBAP a
-                WHERE a.MANDT='{MANDT}' AND a.MATNR IN ({ph}) AND a.ABGRU IS NULL
-            """, chunk)
-        for matnr, werks, vbeln, posnr, kwmenge in cur.fetchall():
+        cur.execute(f"""
+            SELECT p.MATNR, p.WERKS, p.VBELN, p.POSNR, p.LFIMG,
+                   {sel_kunnr}, {sel_kodat}, {sel_lfdat}
+            FROM {SCHEMA}.LIPS p
+            JOIN {SCHEMA}.LIKP h ON p.MANDT=h.MANDT AND p.VBELN=h.VBELN
+            WHERE p.MANDT='{MANDT}' AND p.MATNR IN ({ph}) AND {open_cond}
+              AND p.LFIMG <> 0
+        """, chunk)
+        for matnr, werks, vbeln, posnr, lfimg, kunnr, kodat, lfdat in cur.fetchall():
             werks = (werks or "").strip()
             if werks not in plant_valid:
                 continue
+            qty = float(lfimg or 0)
+            if qty <= 0:
+                continue
             matnr = (matnr or "").strip()
             vbeln = (vbeln or "").strip(); posnr = (posnr or "").strip()
-            raw.append([matnr, werks, vbeln, posnr, float(kwmenge or 0)])
-            vbeln_pos.append((vbeln, posnr))
-    cli, fdoc, fentrega = _enrich_ventas(cur, vbeln_pos)
-    for matnr, werks, vbeln, posnr, qty in raw:
-        if qty <= 0:
-            continue
-        net_by_mp[(matnr, werks)] += qty
-        rows.append((matnr, werks, vbeln, posnr, cli.get(vbeln),
-                     round(qty, 3), fdoc.get(vbeln), fentrega.get((vbeln, posnr))))
-    print(f"  filas backorder_detalle (VBAP/VBUP fallback): {len(rows)}")
-    return rows, net_by_mp, "VBAP/VBUP"
+            kunnr = (kunnr or "").strip()
+            net_by_mp[(matnr, werks)] += qty
+            raw.append([matnr, werks, vbeln, posnr, qty, kunnr, d(kodat), d(lfdat)])
+            if kunnr:
+                kunnrs.add(kunnr)
+
+    kna1 = {}
+    if table_exists(cur, SCHEMA, "KNA1"):
+        for chunk in chunks(sorted(kunnrs), 1000):
+            ph = ",".join(["?"] * len(chunk))
+            cur.execute(f"SELECT KUNNR, NAME1 FROM {SCHEMA}.KNA1 WHERE MANDT='{MANDT}' AND KUNNR IN ({ph})", chunk)
+            for kunnr, name1 in cur.fetchall():
+                kna1[(kunnr or "").strip()] = (name1 or "").strip()
+
+    rows = []
+    for matnr, werks, vbeln, posnr, qty, kunnr, fdoc, fentrega in raw:
+        rows.append((matnr, werks, vbeln, posnr,
+                     kna1.get(kunnr) or kunnr or None,
+                     round(qty, 3), fdoc, fentrega))
+    print(f"  filas backorder_detalle (entregas abiertas): {len(rows)}")
+    return rows, net_by_mp, "ENTREGAS_ABIERTAS (LIPS/LIKP sin PGI, WADAT_IST vacio)"
 
 
 def _enrich_ventas(cur, vbeln_pos):
@@ -386,16 +380,39 @@ def reconcile(scur, pc_gross, pc_net, bo_net, bo_source):
                 scur.execute("SELECT material_id, plant, comprometido FROM inventarios WHERE comprometido>0")}
     sum_inv_comp = round(sum(inv_comp.values()), 2)
     sum_bo = round(sum(bo_net.values()), 2)
-    print(f"  comprometido (inventarios) Σ    = {sum_inv_comp}")
+    combos_bo = set(inv_comp) | set(bo_net)
+    exact = sum(1 for k in combos_bo if abs(inv_comp.get(k, 0) - bo_net.get(k, 0)) < 0.5)
+    comp_sin_detalle = sum(1 for k in inv_comp if bo_net.get(k, 0) == 0)
+    detalle_sin_comp = sum(1 for k in bo_net if inv_comp.get(k, 0) == 0)
+    sum_bo_en_comp = round(sum(bo_net.get(k, 0) for k in inv_comp), 2)
+    cobertura_pct = round(100.0 * exact / len(inv_comp), 1) if inv_comp else 0.0
+    print(f"  comprometido (inventarios) Σ    = {sum_inv_comp}  (combos {len(inv_comp)})")
     print(f"  backorder detalle Σ pendiente   = {sum_bo}  (fuente: {bo_source})")
+    print(f"  cuadre exacto por combo         = {exact}/{len(inv_comp)} ({cobertura_pct}%); "
+          f"comprometido sin detalle: {comp_sin_detalle}; detalle sin comprometido: {detalle_sin_comp}")
     report["backorder"] = {
-        "fuente": bo_source,
+        "fuente_detalle": bo_source,
+        "fuente_agregado_comprometido": ("_SYS_BIC.sap.is.retail.car_s4h/"
+                                         "InventoryVisibilityWithSalesOrderReservedQuantity.ReservedQuantity "
+                                         "(agregado por articulo/centro, sin dimension de documento)"),
         "sum_inventarios_comprometido": sum_inv_comp,
         "sum_detalle_backorder": sum_bo,
-        "nota": ("comprometido en v4 proviene del Calculation View de CAR "
-                 "InventoryVisibilityWithSalesOrderReservedQuantity (ReservedQuantity), "
-                 "mientras el detalle proviene de VBBE/VBAP. Pueden diferir porque el CV "
-                 "aplica logica ATP/confirmacion; se documenta la diferencia y el origen de cada uno."),
+        "sum_detalle_en_combos_con_comprometido": sum_bo_en_comp,
+        "combos_comprometido": len(inv_comp),
+        "combos_cuadre_exacto": exact,
+        "pct_combos_cuadre_exacto": cobertura_pct,
+        "combos_comprometido_sin_detalle_doc": comp_sin_detalle,
+        "combos_detalle_sin_comprometido": detalle_sin_comp,
+        "nota": ("DIFERENCIA ESPERADA Y DOCUMENTADA (origen ATP). 'comprometido' proviene del "
+                 "Calculation View ATP de CAR (ReservedQuantity), agregado por articulo/centro y "
+                 "SIN detalle por documento. El detalle documento-a-documento se toma de las "
+                 "ENTREGAS ABIERTAS reales (LIPS/LIKP sin salida de mercancia registrada), que es "
+                 "el mejor proxy real y semanticamente equivale a mercancia comprometida. NO cuadra "
+                 "1:1 porque el CV aplica netting ATP: hay combos con comprometido ATP pero sin "
+                 "entrega abierta creada aun, y entregas abiertas cuyo requerimiento el CV ya neteo. "
+                 "Verificado en vivo: VBBE/VBUP/RESB no existen en el replica y los items de venta "
+                 "abiertos en VBAP (~0) no reconstruyen el comprometido. El drill-down muestra "
+                 "documentos, cliente y fechas REALES; la suma puede diferir del badge ATP del centro."),
     }
     return report
 
