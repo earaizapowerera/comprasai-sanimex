@@ -27,10 +27,12 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.routers.engines.sugeridos import (  # noqa: E402
+    backorder_detalle,
     build_datos_decision,
     calc_motivo_redondeo,
     generar_sugeridos,
     lista_sugeridos,
+    pedidos_detalle,
 )
 
 SCHEMA_PATH = BACKEND_DIR / "app" / "core" / "schema.sql"
@@ -95,7 +97,52 @@ class BuildDatosDecisionTests(unittest.TestCase):
         self.assertEqual(dd["proveedor"]["nombre"], "Proveedor Uno")
         self.assertEqual(dd["proveedor"]["lead_time_dias"], 10)
         self.assertEqual(len(dd["serie_demanda"]), 3)
-        self.assertEqual(dd["serie_demanda"][0], {"anio_mes": "2026-06", "cajas": 40.0})
+        # T25 (waykee 290148): con 3 puntos y meses_demanda=3 (default), TODOS
+        # entran al promedio corto -> incluido_promedio_3m=True en los 3.
+        self.assertEqual(
+            dd["serie_demanda"][0],
+            {"anio_mes": "2026-06", "cajas": 40.0, "incluido_promedio_3m": True},
+        )
+        self.assertTrue(all(p["incluido_promedio_3m"] for p in dd["serie_demanda"]))
+
+    def test_incluido_promedio_3m_solo_marca_los_ultimos_n(self):
+        # 5 meses de historia, meses_demanda=3 -> solo los últimos 3 marcados.
+        dd = build_datos_decision(**self._base_kwargs(
+            serie_pts=[
+                ("2026-04", 10.0), ("2026-05", 20.0), ("2026-06", 40.0),
+                ("2026-07", 40.0), ("2026-08", 40.0),
+            ],
+            meses_demanda=3,
+        ))
+        incluidos = [p["anio_mes"] for p in dd["serie_demanda"] if p["incluido_promedio_3m"]]
+        self.assertEqual(incluidos, ["2026-06", "2026-07", "2026-08"])
+
+    def test_meses_excluidos_desabasto_placeholder_vacio(self):
+        # T21 (umbral de desabasto) todavía no aterriza -- el campo queda
+        # reservado y vacío para no romper el contrato del frontend.
+        dd = build_datos_decision(**self._base_kwargs())
+        self.assertEqual(dd["meses_excluidos_desabasto"], [])
+
+    def test_inventario_fin_mes_sin_kardex_queda_en_none(self):
+        dd = build_datos_decision(**self._base_kwargs())
+        self.assertFalse(dd["kardex_disponible"])
+        self.assertEqual(
+            dd["inventario_fin_mes"],
+            [
+                {"anio_mes": "2026-06", "saldo": None},
+                {"anio_mes": "2026-07", "saldo": None},
+                {"anio_mes": "2026-08", "saldo": None},
+            ],
+        )
+
+    def test_inventario_fin_mes_con_kardex_expone_saldo_por_mes(self):
+        dd = build_datos_decision(**self._base_kwargs(
+            inventario_fin_mes={"2026-06": 120.0, "2026-07": 100.0, "2026-08": 80.0},
+            kardex_disponible=True,
+        ))
+        self.assertTrue(dd["kardex_disponible"])
+        por_mes = {p["anio_mes"]: p["saldo"] for p in dd["inventario_fin_mes"]}
+        self.assertEqual(por_mes, {"2026-06": 120.0, "2026-07": 100.0, "2026-08": 80.0})
 
     def test_sobrevendido_cuando_disponible_neto_negativo(self):
         dd = build_datos_decision(**self._base_kwargs(
@@ -244,6 +291,119 @@ class ListaSugeridosDatosDecisionIntegrationTests(unittest.TestCase):
     def test_lista_sobrevendido_persiste_flag(self):
         items = {it["material_id"]: it for it in lista_sugeridos(estado="propuesto", db=self.conn)["items"]}
         self.assertTrue(items["MAT-SOBREVENDIDO"]["datos_decision"]["inventario"]["sobrevendido"])
+
+
+class KardexDiarioIntegrationTests(unittest.TestCase):
+    """T25 (waykee 290148): kardex_diario NO existe en el dataset actual
+    (verificado: la tabla solo vive en un script sin correr en la rama
+    huérfana bot/290120-kardex) -- generar_sugeridos debe degradar con
+    gracia (kardex_disponible=False, saldo None por mes) cuando falta, y usar
+    el saldo real (arrastrado del último movimiento <= fin de mes) cuando sí
+    está poblada."""
+
+    def setUp(self):
+        self.conn = _build_memory_db()
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _generar_datos_decision(self, material_id="MAT-NORMAL"):
+        items = generar_sugeridos(
+            familia=None, proveedor=None, corredor=None, plant=None, abc=None,
+            solo_criticos=False, page=1, page_size=50, db=self.conn,
+        )["items"]
+        return {i["material_id"]: i for i in items}[material_id]["datos_decision"]
+
+    def test_sin_tabla_kardex_diario_marca_no_disponible(self):
+        dd = self._generar_datos_decision()
+        self.assertFalse(dd["kardex_disponible"])
+        self.assertEqual(len(dd["inventario_fin_mes"]), len(dd["serie_demanda"]))
+        self.assertTrue(all(p["saldo"] is None for p in dd["inventario_fin_mes"]))
+
+    def test_con_kardex_diario_poblado_arrastra_saldo_de_fin_de_mes(self):
+        self.conn.execute(
+            """CREATE TABLE kardex_diario (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                material_id TEXT NOT NULL,
+                plant TEXT NOT NULL,
+                fecha TEXT NOT NULL,
+                entradas REAL NOT NULL DEFAULT 0,
+                salidas REAL NOT NULL DEFAULT 0,
+                saldo_fin_dia REAL NOT NULL DEFAULT 0
+            )"""
+        )
+        # Sin movimiento en julio a propósito: el saldo debe ARRASTRARSE del
+        # último movimiento conocido (15-jun), igual que un kardex real.
+        self.conn.execute(
+            "INSERT INTO kardex_diario (material_id, plant, fecha, saldo_fin_dia) VALUES "
+            "('MAT-NORMAL', 'P1', '2026-06-15', 120), "
+            "('MAT-NORMAL', 'P1', '2026-08-10', 80)"
+        )
+        self.conn.commit()
+        dd = self._generar_datos_decision()
+        self.assertTrue(dd["kardex_disponible"])
+        por_mes = {p["anio_mes"]: p["saldo"] for p in dd["inventario_fin_mes"]}
+        self.assertEqual(por_mes["2026-06"], 120)
+        self.assertEqual(por_mes["2026-07"], 120)  # arrastrado, sin movimiento propio
+        self.assertEqual(por_mes["2026-08"], 80)
+
+
+class DrillDownEndpointsTests(unittest.TestCase):
+    """T25 (waykee 290148): endpoints de detalle de backorder/pedidos por
+    cumplir -- backorder_detalle/pedidos_compra_detalle (dataset v5, waykee
+    290147) todavía las extrae el Data Expert; deben degradar con gracia."""
+
+    def setUp(self):
+        self.conn = _build_memory_db()
+
+    def tearDown(self):
+        self.conn.close()
+
+    def test_backorder_detalle_sin_tabla_responde_no_disponible(self):
+        resp = backorder_detalle(material_id="MAT-NORMAL", plant="P1", db=self.conn)
+        self.assertFalse(resp["disponible"])
+        self.assertEqual(resp["documentos"], [])
+
+    def test_pedidos_detalle_sin_tabla_responde_no_disponible(self):
+        resp = pedidos_detalle(material_id="MAT-NORMAL", plant="P1", db=self.conn)
+        self.assertFalse(resp["disponible"])
+        self.assertEqual(resp["pedidos"], [])
+
+    def test_backorder_detalle_con_tabla_regresa_documentos(self):
+        self.conn.execute(
+            """CREATE TABLE backorder_detalle (
+                material_id TEXT, plant TEXT, documento TEXT, posicion TEXT,
+                cliente TEXT, cantidad_pendiente REAL,
+                fecha_documento TEXT, fecha_entrega_comprometida TEXT
+            )"""
+        )
+        self.conn.execute(
+            "INSERT INTO backorder_detalle VALUES "
+            "('MAT-NORMAL', 'P1', 'DOC1', '10', 'Cliente X', 30, '2026-08-01', '2026-08-15')"
+        )
+        self.conn.commit()
+        resp = backorder_detalle(material_id="MAT-NORMAL", plant="P1", db=self.conn)
+        self.assertTrue(resp["disponible"])
+        self.assertEqual(len(resp["documentos"]), 1)
+        self.assertEqual(resp["documentos"][0]["documento"], "DOC1")
+
+    def test_pedidos_detalle_con_tabla_regresa_pedidos(self):
+        self.conn.execute(
+            """CREATE TABLE pedidos_compra_detalle (
+                material_id TEXT, plant TEXT, po TEXT, posicion TEXT,
+                proveedor TEXT, cantidad_pendiente REAL,
+                fecha_po TEXT, fecha_entrega_estimada TEXT
+            )"""
+        )
+        self.conn.execute(
+            "INSERT INTO pedidos_compra_detalle VALUES "
+            "('MAT-NORMAL', 'P1', 'PO1', '20', 'Proveedor Uno', 50, '2026-08-01', '2026-08-20')"
+        )
+        self.conn.commit()
+        resp = pedidos_detalle(material_id="MAT-NORMAL", plant="P1", db=self.conn)
+        self.assertTrue(resp["disponible"])
+        self.assertEqual(len(resp["pedidos"]), 1)
+        self.assertEqual(resp["pedidos"][0]["po"], "PO1")
 
 
 if __name__ == "__main__":

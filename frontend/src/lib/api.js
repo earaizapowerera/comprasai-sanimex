@@ -60,5 +60,10 @@ export const api = {
     decidir: (ids, accion, aprobado_por) =>
       apiPost('/engines/sugeridos/decidir', { body: { ids, accion, aprobado_por } }),
     exportarSapUrl: () => `${API_BASE}/engines/sugeridos/exportar-sap`,
+    // T25 (waykee 290148): drill-down de backorder/pedidos desde ExplainPanel.
+    backorderDetalle: (material_id, plant) =>
+      apiGet('/engines/sugeridos/backorder-detalle', { material_id, plant }),
+    pedidosDetalle: (material_id, plant) =>
+      apiGet('/engines/sugeridos/pedidos-detalle', { material_id, plant }),
   },
 }

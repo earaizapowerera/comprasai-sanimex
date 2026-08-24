@@ -16,6 +16,30 @@ const TABS = [
 const fmtInt = new Intl.NumberFormat("es-MX");
 const fmtMoney = new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 });
 
+function fmtDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("es-MX");
+}
+
+// T25 (waykee 290148): columnas del drill-down, mismo nombre de campo que
+// backorder_detalle/pedidos_compra_detalle (dataset v5, waykee 290147).
+const BACKORDER_COLUMNAS = [
+  { key: "documento", label: "Doc." },
+  { key: "posicion", label: "Pos." },
+  { key: "cliente", label: "Cliente" },
+  { key: "cantidad_pendiente", label: "Cant.", num: true, fmt: (v) => fmtInt.format(v || 0) },
+  { key: "fecha_entrega_comprometida", label: "Entrega compr.", fmt: fmtDate },
+];
+const PEDIDOS_COLUMNAS = [
+  { key: "po", label: "PO" },
+  { key: "posicion", label: "Pos." },
+  { key: "proveedor", label: "Proveedor" },
+  { key: "cantidad_pendiente", label: "Cant.", num: true, fmt: (v) => fmtInt.format(v || 0) },
+  { key: "fecha_entrega_estimada", label: "Entrega est.", fmt: fmtDate },
+];
+
 function comprarDe(row) {
   return row.cantidad_comprar_bruta ?? row.cantidad_comprar ?? 0;
 }
@@ -112,31 +136,173 @@ function Combobox({ label, value, options, onChange, placeholder }) {
  * pesos hardcodeados (40/25/15/10/10) que no salían de ningún cálculo real.
  * Ahora se muestran los datos REALES que entraron en la fórmula del backend
  * (datos_decision): serie de demanda, desglose de inventario, fórmula
- * cobertura→faltante→redondeo, y el detalle de transferencias RN-02. */
-function SerieDemandaTabla({ serie }) {
+ * cobertura→faltante→redondeo, y el detalle de transferencias RN-02.
+ *
+ * T25 (waykee 290148): feedback directo de Enrique -- la explicación no era
+ * coherente porque no mostraba los datos que un humano usaría para decidir.
+ * Se agrega: (1) marca visual de qué meses entran al promedio de 3, con
+ * espacio ya reservado para los que T21 excluya por desabasto; (2) fila de
+ * inventario fin de mes (kardex_diario, "disponible próximamente" mientras
+ * T20 no aterriza); (3) comprometido/pedidos-por-cumplir clickeables con
+ * drill-down documento a documento (T25/waykee 290147, "en camino" mientras
+ * la tabla no exista). */
+function SerieYInventarioTabla({ dd }) {
+  const serie = dd?.serie_demanda;
   if (!serie || serie.length === 0) return null;
+  const inventarioPorMes = new Map((dd.inventario_fin_mes || []).map((p) => [p.anio_mes, p.saldo]));
+  const excluidosDesabasto = new Set(dd.meses_excluidos_desabasto || []);
+
   return (
     <div style={{ marginTop: 14 }}>
       <div className="footnote text-secondary" style={{ marginBottom: 4 }}>
-        Demanda últimos {serie.length} meses (cajas)
+        Ventas e inventario, últimos {serie.length} meses
       </div>
       <table className="table table--compact">
         <thead>
           <tr>
-            {serie.map((p) => (
-              <th key={p.anio_mes} className="num">{p.anio_mes}</th>
-            ))}
+            <th></th>
+            {serie.map((p) => {
+              const excluido = excluidosDesabasto.has(p.anio_mes);
+              const incluido = p.incluido_promedio_3m && !excluido;
+              return (
+                <th
+                  key={p.anio_mes}
+                  className="num"
+                  style={{ opacity: incluido ? 1 : 0.55 }}
+                  title={
+                    excluido
+                      ? "Excluido del promedio por desabasto (RN próxima, T21)"
+                      : p.incluido_promedio_3m
+                      ? `Incluido en el promedio de ${dd.meses_demanda ?? 3} meses`
+                      : `Fuera de la ventana del promedio de ${dd.meses_demanda ?? 3} meses`
+                  }
+                >
+                  {p.anio_mes}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
           <tr>
-            {serie.map((p) => (
-              <td key={p.anio_mes} className="num tnum">{fmtInt.format(p.cajas)}</td>
-            ))}
+            <td className="footnote text-secondary">Ventas (caj)</td>
+            {serie.map((p) => {
+              const excluido = excluidosDesabasto.has(p.anio_mes);
+              const incluido = p.incluido_promedio_3m && !excluido;
+              return (
+                <td
+                  key={p.anio_mes}
+                  className="num tnum"
+                  style={{ opacity: incluido ? 1 : 0.55, fontWeight: incluido ? "var(--fw-semibold)" : "normal" }}
+                >
+                  {fmtInt.format(p.cajas)}
+                  {incluido && <sup style={{ marginLeft: 2 }}>●</sup>}
+                </td>
+              );
+            })}
+          </tr>
+          <tr>
+            <td className="footnote text-secondary">Inv. fin de mes</td>
+            {serie.map((p) => {
+              const saldo = inventarioPorMes.get(p.anio_mes);
+              return (
+                <td key={p.anio_mes} className="num tnum">
+                  {saldo === undefined || saldo === null ? (
+                    <span className="text-tertiary" title="kardex_diario aún no disponible en este dataset (T20)">—</span>
+                  ) : (
+                    fmtInt.format(saldo)
+                  )}
+                </td>
+              );
+            })}
           </tr>
         </tbody>
       </table>
+      <div className="caption text-tertiary" style={{ marginTop: 2 }}>
+        ● entra al promedio de {dd.meses_demanda ?? 3} meses usado para cobertura/faltante.
+        {dd.kardex_disponible === false && " Inventario fin de mes: disponible próximamente (kardex_diario en extracción, T20)."}
+      </div>
     </div>
+  );
+}
+
+/** T25 (waykee 290148): botón que expande el detalle documento-a-documento
+ * (backorder) o PO-a-PO (pedidos por cumplir) bajo demanda -- no se precarga
+ * para no pegarle a la API por cada línea de la tabla. */
+function DrillDown({ label, cantidad, cargar, columnas }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+
+  if (!cantidad) {
+    return <strong className="tnum">{fmtInt.format(0)}</strong>;
+  }
+
+  async function toggle() {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    setOpen(true);
+    if (data || loading) return;
+    setLoading(true);
+    setError(null);
+    try {
+      setData(await cargar());
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const filas = data?.documentos || data?.pedidos || [];
+
+  return (
+    <span>
+      <button
+        className="btn btn--ghost btn--sm"
+        style={{ padding: "0 4px", height: "auto", textDecoration: "underline", verticalAlign: "baseline" }}
+        onClick={toggle}
+        title={`Ver detalle de ${label.toLowerCase()}`}
+        type="button"
+      >
+        <strong className="tnum">{fmtInt.format(cantidad)}</strong> {open ? "▴" : "▾"}
+      </button>
+      {open && (
+        <div className="card card--flat" style={{ marginTop: 6, padding: 8, maxHeight: 170, overflowY: "auto" }}>
+          {loading && <div className="caption text-tertiary">Cargando…</div>}
+          {error && <div className="caption" style={{ color: "var(--danger-text)" }}>{error}</div>}
+          {data && data.disponible === false && (
+            <div className="caption text-tertiary">
+              Detalle de {label.toLowerCase()} aún no disponible — viene en camino (waykee 290147).
+            </div>
+          )}
+          {data && data.disponible && filas.length === 0 && (
+            <div className="caption text-tertiary">Sin renglones de detalle para esta línea.</div>
+          )}
+          {data && data.disponible && filas.length > 0 && (
+            <table className="table table--compact">
+              <thead>
+                <tr>{columnas.map((c) => <th key={c.key} className={c.num ? "num" : ""}>{c.label}</th>)}</tr>
+              </thead>
+              <tbody>
+                {filas.map((r, i) => (
+                  <tr key={i}>
+                    {columnas.map((c) => (
+                      <td key={c.key} className={c.num ? "num tnum" : ""}>
+                        {c.fmt ? c.fmt(r[c.key]) : r[c.key] ?? "—"}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </span>
   );
 }
 
@@ -150,7 +316,7 @@ function ExplainPanel({ row, onClose }) {
   const trans = dd?.transferencia || { cantidad_transferir: row.cantidad_transferir, detalle_transferencias: row.detalle_transferencias };
 
   return (
-    <aside className="card card--elevated" style={{ position: "sticky", top: 84, alignSelf: "flex-start", width: 380, flexShrink: 0 }}>
+    <aside className="card card--elevated" style={{ position: "sticky", top: 84, alignSelf: "flex-start", width: 400, flexShrink: 0 }}>
       <div className="ai-explain">
         <div className="ai-explain__head">
           ✨ Por qué se sugiere esta cantidad
@@ -166,17 +332,33 @@ function ExplainPanel({ row, onClose }) {
 
         {tieneDatosDecision ? (
           <>
-            <SerieDemandaTabla serie={dd.serie_demanda} />
+            <SerieYInventarioTabla dd={dd} />
             <div className="caption text-tertiary" style={{ marginTop: 2 }}>
-              Promedio 3m: {fmtInt.format(dd.demanda_promedio_3m || 0)} caj/mes · {dd.meses_con_venta ?? "—"}/{dd.meses_historia ?? 6} meses con venta
+              Promedio {dd.meses_demanda ?? 3}m: {fmtInt.format(dd.demanda_promedio_3m || 0)} caj/mes · {dd.meses_con_venta ?? "—"}/{dd.meses_historia ?? 6} meses con venta
             </div>
 
             <div style={{ marginTop: 14 }}>
               <div className="footnote text-secondary" style={{ marginBottom: 4 }}>Inventario (cajas)</div>
-              <div className="footnote" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+              <div className="footnote" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
                 <span>Disponible: <strong className="tnum">{fmtInt.format(inv.disponible || 0)}</strong></span>
-                <span>Tránsito: <strong className="tnum">{fmtInt.format(inv.transito || 0)}</strong></span>
-                <span>Comprometido: <strong className="tnum">{fmtInt.format(inv.comprometido || 0)}</strong></span>
+                <span>
+                  Pedidos por cumplir:{" "}
+                  <DrillDown
+                    label="Pedidos por cumplir"
+                    cantidad={inv.transito || 0}
+                    cargar={() => api.sugeridos.pedidosDetalle(row.material_id, row.plant)}
+                    columnas={PEDIDOS_COLUMNAS}
+                  />
+                </span>
+                <span>
+                  Comprometido:{" "}
+                  <DrillDown
+                    label="Backorder"
+                    cantidad={inv.comprometido || 0}
+                    cargar={() => api.sugeridos.backorderDetalle(row.material_id, row.plant)}
+                    columnas={BACKORDER_COLUMNAS}
+                  />
+                </span>
                 <span>Neto: <strong className="tnum">{fmtInt.format(inv.disponible_neto || 0)}</strong></span>
               </div>
             </div>
@@ -184,8 +366,9 @@ function ExplainPanel({ row, onClose }) {
             <div style={{ marginTop: 14 }}>
               <div className="footnote text-secondary" style={{ marginBottom: 4 }}>Fórmula</div>
               <div className="footnote">
-                Cobertura actual <strong className="tnum">{dd.cobertura_actual?.toFixed?.(1) ?? "—"}</strong> vs objetivo{" "}
-                <strong className="tnum">{dd.meses_objetivo ?? "—"}</strong> meses → faltante bruto{" "}
+                Promedio <strong className="tnum">{fmtInt.format(dd.demanda_promedio_3m || 0)}</strong> caj/mes → cobertura actual{" "}
+                <strong className="tnum">{dd.cobertura_actual?.toFixed?.(1) ?? "—"}</strong> vs objetivo{" "}
+                <strong className="tnum">{dd.meses_objetivo ?? "—"}</strong> meses → faltante{" "}
                 <strong className="tnum">{fmtInt.format(dd.faltante_bruto || 0)}</strong> cajas
               </div>
               {trans.cantidad_transferir > 0 && (
@@ -196,7 +379,7 @@ function ExplainPanel({ row, onClose }) {
               )}
               <div className="footnote" style={{ marginTop: 4 }}>
                 Compra bruta <strong className="tnum">{fmtInt.format(red.cantidad_comprar_bruta || 0)}</strong> → final{" "}
-                <strong className="tnum">{fmtInt.format(red.cantidad_final ?? row.cantidad_final)}</strong> cajas
+                <strong className="tnum">{fmtInt.format(red.cantidad_final ?? row.cantidad_final)}</strong> cajas (MOQ/pallet)
               </div>
               {red.motivo && <div className="caption text-tertiary" style={{ marginTop: 2 }}>{red.motivo}</div>}
             </div>

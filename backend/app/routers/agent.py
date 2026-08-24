@@ -115,6 +115,20 @@ ENDPOINTS_PERMITIDOS = [
         _p("estado", "propuesto|aprobado|rechazado"),
     ], pantalla="sugeridos"),
     _endpoint(
+        "GET", "/api/engines/sugeridos/backorder-detalle",
+        "Drill-down documento a documento del comprometido (backorder) de una línea material+plant. "
+        "Responde disponible=false mientras backorder_detalle (dataset v5, waykee 290147) no aterrice.",
+        [_p("material_id", "Id del material", True), _p("plant", "Plant/sucursal", True)],
+        pantalla="sugeridos",
+    ),
+    _endpoint(
+        "GET", "/api/engines/sugeridos/pedidos-detalle",
+        "Drill-down por orden de compra de 'pedidos por cumplir' (tránsito) de una línea material+plant. "
+        "Responde disponible=false mientras pedidos_compra_detalle (dataset v5, waykee 290147) no aterrice.",
+        [_p("material_id", "Id del material", True), _p("plant", "Plant/sucursal", True)],
+        pantalla="sugeridos",
+    ),
+    _endpoint(
         "GET", "/api/balanceos/propuestas",
         "Genera/lista propuestas de transferencia entre sucursales del mismo corredor antes que comprar (RN-02).",
         [_p("corredor", ""), _p("limit", "default 25, máx 100")],

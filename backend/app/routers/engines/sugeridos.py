@@ -158,17 +158,54 @@ def build_datos_decision(
     cantidad_comprar_bruta: float,
     cantidad_tras_moq: float,
     cantidad_final: float,
+    meses_demanda: int = MESES_DEMANDA,
+    inventario_fin_mes: Optional[dict[str, Optional[float]]] = None,
+    kardex_disponible: bool = False,
 ) -> dict:
     """T19 (waykee 290116): inputs REALES que entraron en la fórmula del
     sugerido -- reemplaza los pesos hardcodeados de 'factores' (40/25/15/10/10,
     waykee 290116 msg inicial) que no salían de ningún cálculo. Cada campo de
     este dict es trazable a una variable ya calculada en generar_sugeridos(),
-    no un valor inventado."""
+    no un valor inventado.
+
+    T25 (waykee 290148): feedback directo de Enrique sobre T19 -- la
+    explicación no era coherente porque no mostraba los datos que un humano
+    usaría para decidir. Se agregan:
+      - `incluido_promedio_3m` por mes en `serie_demanda`: marca cuáles de los
+        `meses_historia` puntos entraron realmente al promedio corto
+        (`meses_demanda`, los últimos N) usado para cobertura/faltante. Deja
+        el campo listo para que T21 marque además los meses excluidos por
+        desabasto (`meses_excluidos_desabasto`, aún vacío -- T21 no ha
+        aterrizado el umbral).
+      - `inventario_fin_mes`: saldo de fin de mes (kardex_diario.saldo_fin_dia
+        del último día con movimiento <= fin de mes) alineado a los mismos
+        meses de `serie_demanda`. `kardex_disponible=False` cuando la tabla
+        kardex_diario todavía no existe en el dataset (T20/290120 aún no
+        aterriza) -- el valor de cada mes viene en None y el frontend debe
+        mostrar el aviso de "disponible próximamente", igual que hace con
+        backorder/pedidos vía los endpoints de detalle."""
+    n_incluidos = min(meses_demanda, len(serie_pts))
+    corte = len(serie_pts) - n_incluidos
+    inventario_fin_mes = inventario_fin_mes or {}
     return {
-        "serie_demanda": [{"anio_mes": anio_mes, "cajas": cajas} for anio_mes, cajas in serie_pts],
+        "serie_demanda": [
+            {
+                "anio_mes": anio_mes,
+                "cajas": cajas,
+                "incluido_promedio_3m": idx >= corte,
+            }
+            for idx, (anio_mes, cajas) in enumerate(serie_pts)
+        ],
         "demanda_promedio_3m": round(demanda_promedio_3m, 2),
         "meses_con_venta": meses_con_venta,
         "meses_historia": meses_historia,
+        "meses_demanda": meses_demanda,
+        "meses_excluidos_desabasto": [],
+        "inventario_fin_mes": [
+            {"anio_mes": anio_mes, "saldo": inventario_fin_mes.get(anio_mes)}
+            for anio_mes, _ in serie_pts
+        ],
+        "kardex_disponible": kardex_disponible,
         "inventario": {
             "disponible": disponible or 0,
             "transito": transito or 0,
@@ -246,6 +283,38 @@ def _ensure_tables(db: sqlite3.Connection) -> None:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _tabla_existe(db: sqlite3.Connection, tabla: str) -> bool:
+    """T25 (waykee 290148): guard para tablas opcionales del dataset que aún
+    no aterrizan (kardex_diario, backorder_detalle, pedidos_compra_detalle) --
+    permite degradar con gracia (None / "disponible": False) en vez de tronar
+    con 'no such table', mismo patrón que _tabla_existe en
+    analysis/backtest_forecast.py."""
+    row = db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", [tabla]
+    ).fetchone()
+    return row is not None
+
+
+def _saldos_fin_mes(puntos: list[tuple[str, float]], meses: list[str]) -> dict[str, Optional[float]]:
+    """T25 (waykee 290148): inventario fin de mes = saldo_fin_dia del último
+    registro de kardex_diario con fecha <= fin del mes -- el kardex solo tiene
+    filas en días CON movimiento (ver build_kardex_v3.py, waykee 290120), así
+    que el saldo se ARRASTRA del último movimiento conocido, igual que un
+    kardex real. `puntos` debe venir ordenado ascendente por fecha (columna
+    `fecha`, formato 'YYYY-MM-DD') y `meses` ascendente ('YYYY-MM'). None
+    cuando no hay ningún movimiento registrado en o antes de ese mes."""
+    resultado: dict[str, Optional[float]] = {}
+    idx = 0
+    n = len(puntos)
+    ultimo_saldo: Optional[float] = None
+    for mes in meses:
+        while idx < n and puntos[idx][0][:7] <= mes:
+            ultimo_saldo = puntos[idx][1]
+            idx += 1
+        resultado[mes] = ultimo_saldo
+    return resultado
 
 
 # ---------------------------------------------------------------------------
@@ -334,6 +403,26 @@ def generar_sugeridos(
         key = (r["material_id"], r["plant"])
         cajas = calc_m2_a_cajas(r["m2"] or 0.0, m2_por_caja_map.get(r["material_id"]))
         serie.setdefault(key, []).append((r["anio_mes"], cajas))
+
+    # T25 (waykee 290148): inventario fin de mes, batch en UNA query (mismo
+    # patrón que ventas_rows arriba) -- kardex_diario todavía no aterriza en
+    # este dataset (T20/290120 sigue sin mergear/poblar con datos reales de
+    # SAP), así que se degrada con gracia: kardex_disponible=False y cada mes
+    # queda en None hasta que la tabla exista.
+    kardex_disponible = _tabla_existe(db, "kardex_diario")
+    kardex_por_linea: dict[tuple[str, str], list[tuple[str, float]]] = {}
+    if kardex_disponible:
+        kardex_rows = db.execute(
+            f"""SELECT material_id, plant, fecha, saldo_fin_dia
+                FROM kardex_diario
+                WHERE material_id IN ({placeholders})
+                ORDER BY material_id, plant, fecha""",
+            material_ids,
+        ).fetchall()
+        for kr in kardex_rows:
+            kardex_por_linea.setdefault((kr["material_id"], kr["plant"]), []).append(
+                (kr["fecha"], kr["saldo_fin_dia"])
+            )
 
     def demanda_mensual(material_id: str, plant: str, n_meses: int) -> float:
         puntos = serie.get((material_id, plant), [])[-n_meses:]
@@ -464,11 +553,18 @@ def generar_sugeridos(
             partes_explicacion.append("La demanda muestra tendencia a la baja en el último mes.")
         explicacion = " ".join(partes_explicacion)
 
+        saldos_fin_mes = _saldos_fin_mes(
+            kardex_por_linea.get(key, []), [anio_mes for anio_mes, _ in serie_pts]
+        )
+
         datos_decision = build_datos_decision(
             serie_pts=serie_pts,
             demanda_promedio_3m=dem,
             meses_con_venta=meses_con_venta,
             meses_historia=MESES_HISTORIA,
+            meses_demanda=MESES_DEMANDA,
+            inventario_fin_mes=saldos_fin_mes,
+            kardex_disponible=kardex_disponible,
             disponible=r["disponible"],
             transito=r["transito"],
             comprometido=r["comprometido"],
@@ -589,6 +685,57 @@ def lista_sugeridos(
         r.pop("factores_json", None)
         r["datos_decision"] = json.loads(r.pop("datos_decision_json", None) or "{}")
     return {"items": rows}
+
+
+@router.get("/backorder-detalle")
+def backorder_detalle(
+    material_id: str = Query(...),
+    plant: str = Query(...),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """T25 (waykee 290148): drill-down documento a documento del comprometido
+    (backorder) de una línea material+plant, para el clic desde ExplainPanel.
+    La tabla `backorder_detalle` (dataset v5: documento, posicion, cliente,
+    cantidad_pendiente, fecha_documento, fecha_entrega_comprometida) la sigue
+    extrayendo el Data Expert en waykee 290147 -- mientras no exista se
+    responde `disponible: False` para que el frontend muestre el aviso de
+    "detalle en camino" en vez de un 500."""
+    if not _tabla_existe(db, "backorder_detalle"):
+        return {"disponible": False, "material_id": material_id, "plant": plant, "documentos": []}
+    rows = db.execute(
+        """SELECT documento, posicion, cliente, cantidad_pendiente,
+                  fecha_documento, fecha_entrega_comprometida
+           FROM backorder_detalle
+           WHERE material_id = ? AND plant = ?
+           ORDER BY fecha_entrega_comprometida""",
+        [material_id, plant],
+    ).fetchall()
+    return {"disponible": True, "material_id": material_id, "plant": plant, "documentos": rows}
+
+
+@router.get("/pedidos-detalle")
+def pedidos_detalle(
+    material_id: str = Query(...),
+    plant: str = Query(...),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """T25 (waykee 290148): drill-down por orden de compra de "pedidos por
+    cumplir" (tránsito) de una línea material+plant. Tabla
+    `pedidos_compra_detalle` (dataset v5: po, posicion, proveedor,
+    cantidad_pendiente, fecha_po, fecha_entrega_estimada), misma coordinación
+    con el Data Expert en waykee 290147 y mismo fallback degradado que
+    backorder-detalle mientras no aterriza."""
+    if not _tabla_existe(db, "pedidos_compra_detalle"):
+        return {"disponible": False, "material_id": material_id, "plant": plant, "pedidos": []}
+    rows = db.execute(
+        """SELECT po, posicion, proveedor, cantidad_pendiente,
+                  fecha_po, fecha_entrega_estimada
+           FROM pedidos_compra_detalle
+           WHERE material_id = ? AND plant = ?
+           ORDER BY fecha_entrega_estimada""",
+        [material_id, plant],
+    ).fetchall()
+    return {"disponible": True, "material_id": material_id, "plant": plant, "pedidos": rows}
 
 
 @router.put("/{sugerido_id}/editar")
