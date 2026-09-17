@@ -39,12 +39,44 @@ from app.core.db import get_db
 
 router = APIRouter(prefix="/api/engines/sugeridos", tags=["engines:sugeridos"])
 
-MESES_HISTORIA = 6  # ventana de meses usada para demanda promedio y tendencia
-MESES_DEMANDA = 3    # promedio móvil corto para cobertura/faltante (más reactivo)
+MESES_HISTORIA = 6  # ventana de meses usada para tendencia/confianza (informativo, C2)
 MESES_SERIE_DISPLAY = 5  # T27 (waykee 291745): meses calendario contiguos para el popup de decisión
 DEFAULT_MOQ = 20
 DEFAULT_PALLET = 40
 DEFAULT_OBJETIVO_MESES = 2.0
+
+# T28 (waykee 291765): motor de 3 promedios -- paridad con la hoja Excel del
+# área de compras. Promedio 1 = ventana completa de MESES_SERIE_DISPLAY (5)
+# meses calendario; Promedio 2 = solo los últimos PROMEDIO2_MESES; Promedio 3
+# = misma ventana de 5 meses con el pico de cada mes restado (ver
+# _ajuste_pico_mes). PROMEDIO_GENERAL = promedio simple de los 3.
+PROMEDIO2_MESES = 2
+# Campo de ventas_stats_mensuales a restar en el modo 1 de Promedio 3 (dataset
+# v6, ya desplegado -- ver mensaje puente waykee 290066->291765, confirmado
+# en vivo 17-sep-2026: max_linea == max_ticket siempre en este POS, así que
+# la duda de compras sobre cuál definición usa su Excel no cambia el
+# resultado). Cambiar a "max_linea" es la única acción para encender esa
+# variante si compras pide lo contrario.
+PROMEDIO3_CAMPO_STATS = "max_ticket"
+
+# T28 (mensaje puente waykee 290066->291765, 17-sep-2026): el mes de
+# REFERENCIA de la ventana (el más reciente, hoy 2026-08) viene PARCIAL en
+# ventas_mensuales por diseño -- se extrae a mitad de mes -- mientras que
+# ventas_stats_mensuales (POS /POSDW/TLOGF) sí lo trae completo. Por eso el
+# consumo de ESE mes específico se sustituye por
+# ventas_stats_mensuales.suma_cantidad cuando la tabla existe (ver
+# calc_consumo_mes_referencia_corregido y serie_pts_display), bloqueando el fallback silencioso a
+# ventas_mensuales que subestimaba ese mes ~30%. suma_cantidad viene en
+# PIEZAS POS (RETAILQUANTITY), NO en m2 como cantidad_m2 -- no son
+# comparables 1:1 (ver comprasai_v6_reconciliacion.json). Como no hay un
+# campo "piezas por caja" limpio en materiales (columna `formato` viene
+# vacía en el dataset real), el factor de conversión piezas->m2 se deriva
+# POR MATERIAL de su propia superposición real en los meses previos de la
+# misma ventana (vm_m2 / stats_piezas) -- más preciso que el ratio global
+# del dataset (~1.04, mezcla de todo el catálogo, NO constante por SKU). Ese
+# ratio global queda solo como fallback para materiales sin superposición
+# válida (SKU nuevo, o piezas=0 en los meses previos).
+RATIO_M2_POR_PIEZA_FALLBACK = 1.0399
 
 
 # ---------------------------------------------------------------------------
@@ -52,10 +84,14 @@ DEFAULT_OBJETIVO_MESES = 2.0
 # ---------------------------------------------------------------------------
 
 def calc_m2_a_cajas(m2: float, m2_por_caja: Optional[float]) -> float:
-    """G8: need=100 m2, m2_por_caja=1.44 -> ceil(100/1.44) = 70 cajas."""
+    """G8: need=100 m2, m2_por_caja=1.44 -> ceil(100/1.44) = 70 cajas.
+    Redondea la división a 6 decimales antes del ceil: 43.2/1.44 da
+    30.000000000000004 en punto flotante, y sin este guard eso subía a 31
+    cajas por ruido de FP en vez del 30 exacto (detectado por
+    test_kardex_con_salidas_activa_modo_pico_en_promedio_3)."""
     if not m2_por_caja or m2_por_caja <= 0:
         return round(m2, 2)
-    return math.ceil(m2 / m2_por_caja)
+    return math.ceil(round(m2 / m2_por_caja, 6))
 
 
 def calc_cobertura_meses(disponible_neto: float, demanda_mensual: Optional[float]) -> Optional[float]:
@@ -89,6 +125,136 @@ def calc_redondeo_pallet(cantidad: int, cajas_por_pallet: Optional[int]) -> int:
     return int(math.ceil(cantidad / cajas_por_pallet) * cajas_por_pallet)
 
 
+def calc_promedio_simple(valores: list[float]) -> float:
+    """Promedio 1: media simple de la ventana de meses calendario (con ceros
+    incluidos para meses sin venta -- paridad con la hoja Excel, que no
+    excluye meses en blanco del promedio)."""
+    if not valores:
+        return 0.0
+    return sum(valores) / len(valores)
+
+
+def calc_promedio_ultimos_n(valores: list[float], n: int) -> float:
+    """Promedio 2: media de los últimos `n` meses de la misma ventana."""
+    if n <= 0:
+        return 0.0
+    return calc_promedio_simple(valores[-n:])
+
+
+def calc_factor_m2_por_pieza(pares_m2_piezas: list[tuple[float, float]]) -> float:
+    """Factor piezas POS -> m2 de UN material, derivado de la superposición
+    real (mismo material) entre ventas_mensuales y ventas_stats_mensuales en
+    meses previos completos. `pares_m2_piezas` = [(m2_del_mes, piezas_del_mes), ...].
+    Promedia el ratio mes a mes (no suma-total/suma-total) para no dejar que
+    un solo mes de mucho volumen domine el factor. Cae al fallback global
+    del dataset si no hay ningún mes con piezas > 0."""
+    ratios = [m2 / piezas for m2, piezas in pares_m2_piezas if piezas and piezas > 0]
+    if not ratios:
+        return RATIO_M2_POR_PIEZA_FALLBACK
+    return sum(ratios) / len(ratios)
+
+
+def calc_consumo_mes_referencia_corregido(
+    piezas_mes_ref: float,
+    m2_por_caja: Optional[float],
+    factor_m2_por_pieza: float,
+) -> float:
+    """T28 (mensaje puente waykee 290066->291765, 17-sep-2026): cajas del mes de
+    REFERENCIA (hoy 2026-08) recalculadas desde ventas_stats_mensuales.suma_cantidad
+    (piezas POS, mes completo) en vez de ventas_mensuales.cantidad_m2 (m2, mes
+    PARCIAL -- se extrae a mitad de mes y subestima ~30%). `factor_m2_por_pieza`
+    ya viene derivado por el llamador (ver calc_factor_m2_por_pieza) de la propia
+    superposición histórica del material, NO del ratio global del dataset
+    (1.0399, mezcla de todo el catálogo -- no es una constante válida por SKU)."""
+    m2_estimado = (piezas_mes_ref or 0.0) * factor_m2_por_pieza
+    return calc_m2_a_cajas(m2_estimado, m2_por_caja)
+
+
+def calc_valor_mes_ajustado(valor_mes: float, ajuste: float) -> float:
+    """Ejemplo del mensaje puente (waykee 291765): abril 30 con ajuste 2 -> 28;
+    junio 39 con ajuste 9 -> 30. Nunca deja el mes en negativo."""
+    return max(0.0, valor_mes - max(0.0, ajuste))
+
+
+def calc_promedio_general(promedio_1: float, promedio_2: float, promedio_3: float) -> float:
+    return (promedio_1 + promedio_2 + promedio_3) / 3.0
+
+
+def calc_compra_sugerida(
+    meses_objetivo: float,
+    promedio_general: float,
+    disponible: float,
+    transito: float,
+    comprometido: float,
+) -> float:
+    """Fórmula del Excel de compras: MesesObjetivo x PROMEDIO - Disponible -
+    BackorderCompra(tránsito) + BackorderVenta(comprometido), sin netear el
+    disponible de antemano. Caso golden del mensaje puente: 6*504.6667-536-473+0
+    = 2019.0."""
+    bruta = (
+        meses_objetivo * promedio_general
+        - (disponible or 0.0)
+        - (transito or 0.0)
+        + (comprometido or 0.0)
+    )
+    return round(max(0.0, bruta), 2)
+
+
+def calc_redondeo_pallets_completos(cantidad: float, cajas_por_pallet: Optional[int]) -> int:
+    """Redondeo a Pallets del Excel: SIEMPRE sube al múltiplo de pallet
+    completo (a diferencia de calc_redondeo_pallet, que solo redondea si la
+    cantidad ya supera un pallet -- esa se conserva intacta porque
+    backtest_forecast.py la reusa). Caso golden: 2019 cajas, pallet=16 ->
+    ceil(2019/16)*16 = 2032."""
+    if cantidad <= 0:
+        return 0
+    pallet = cajas_por_pallet if cajas_por_pallet and cajas_por_pallet > 0 else DEFAULT_PALLET
+    return int(math.ceil(cantidad / pallet) * pallet)
+
+
+def calc_motivo_redondeo_pallet(bruta: float, final: int, cajas_por_pallet: int) -> str:
+    """Texto determinista del redondeo a pallet (sin MOQ -- el motor de 3
+    promedios no aplica MOQ, solo pallet completo)."""
+    if bruta <= 0:
+        return "Sin compra: el faltante quedó cubierto por transferencia o el objetivo ya está cumplido."
+    if final > bruta:
+        return f"Se redondea de {bruta:.0f} a {final} cajas para completar pallets de {cajas_por_pallet} cajas cada uno."
+    return f"Sin ajuste: {bruta:.0f} cajas ya es múltiplo exacto de pallet ({cajas_por_pallet} cajas)."
+
+
+def calc_mediana(valores: list[float]) -> float:
+    ordenados = sorted(valores)
+    n = len(ordenados)
+    if n == 0:
+        return 0.0
+    mitad = n // 2
+    if n % 2 == 1:
+        return ordenados[mitad]
+    return (ordenados[mitad - 1] + ordenados[mitad]) / 2.0
+
+
+def calc_mad(valores: list[float], mediana: Optional[float] = None) -> float:
+    """Median Absolute Deviation -- estadístico robusto (no lo mueve un solo
+    valor extremo, a diferencia de la desviación estándar)."""
+    if not valores:
+        return 0.0
+    m = mediana if mediana is not None else calc_mediana(valores)
+    return calc_mediana([abs(v - m) for v in valores])
+
+
+def calc_es_outlier_venta_dia(valores_dia: list[float], valor: float, k: float = 3.0) -> bool:
+    """Detección informativa (no altera la cantidad sugerida): venta atípica
+    si |valor - mediana| > k*MAD. Con MAD=0 (todos los días iguales) se marca
+    outlier solo si el valor evaluado supera esa mediana constante."""
+    if len(valores_dia) < 2:
+        return False
+    mediana = calc_mediana(valores_dia)
+    mad = calc_mad(valores_dia, mediana)
+    if mad <= 0:
+        return valor > mediana
+    return abs(valor - mediana) > k * mad
+
+
 def calc_tendencia(serie_mensual: list[float]) -> str:
     """Compara el último mes contra el promedio de los meses previos.
     +-10% se considera estable (evita ruido de series cortas/sintéticas)."""
@@ -115,30 +281,16 @@ def calc_confianza(meses_con_venta: int, meses_totales: int) -> int:
     return int(round(50 + cobertura_historial * 45))
 
 
-def calc_motivo_redondeo(
-    bruta: float, tras_moq: float, final: float, moq: int, cajas_por_pallet: Optional[int]
-) -> str:
-    """T19 (waykee 290116): texto determinista de POR QUÉ se llegó de la
-    cantidad bruta a comprar (faltante - transferencia) a la cantidad final,
-    en términos de los redondeos RF-011 (MOQ/empaque) y RF-016 (pallet)
-    REALMENTE aplicados -- no una etiqueta genérica."""
-    if bruta <= 0:
-        return "Sin compra: el faltante quedó cubierto por transferencia (RN-02)."
-    partes = []
-    if tras_moq > bruta:
-        partes.append(f"se sube de {bruta:.0f} a {tras_moq:.0f} cajas por MOQ mínimo del proveedor ({moq} cajas)")
-    if final > tras_moq:
-        partes.append(f"se redondea de {tras_moq:.0f} a {final:.0f} cajas por múltiplo de pallet ({cajas_por_pallet} cajas/pallet)")
-    if not partes:
-        return f"Sin ajuste: {bruta:.0f} cajas ya cumple MOQ ({moq}) y pallet ({cajas_por_pallet})."
-    texto = "; ".join(partes)
-    return texto[0].upper() + texto[1:] + "."
-
-
 def build_datos_decision(
     *,
-    serie_pts: list[tuple[str, float]],
-    demanda_promedio_3m: float,
+    historia_meses: list[str],
+    historia_consumo: list[float],
+    promedio_1: float,
+    promedio_2: float,
+    promedio_3: float,
+    promedio_3_ajustes: list[dict],
+    promedio_general: float,
+    meses_actual: Optional[float],
     meses_con_venta: int,
     meses_historia: int,
     disponible: float,
@@ -147,7 +299,7 @@ def build_datos_decision(
     disponible_neto: float,
     cobertura_actual: Optional[float],
     meses_objetivo: float,
-    faltante_bruto: float,
+    compra_sugerida: float,
     proveedor: Optional[str],
     moq_cajas: int,
     cajas_por_pallet: int,
@@ -157,54 +309,47 @@ def build_datos_decision(
     cantidad_transferir: float,
     detalle_transferencias: list[dict],
     cantidad_comprar_bruta: float,
-    cantidad_tras_moq: float,
-    cantidad_final: float,
-    meses_demanda: int = MESES_DEMANDA,
+    cantidad_final: int,
+    n_pallets: int,
     inventario_fin_mes: Optional[dict[str, Optional[float]]] = None,
     kardex_disponible: bool = False,
 ) -> dict:
-    """T19 (waykee 290116): inputs REALES que entraron en la fórmula del
-    sugerido -- reemplaza los pesos hardcodeados de 'factores' (40/25/15/10/10,
-    waykee 290116 msg inicial) que no salían de ningún cálculo. Cada campo de
-    este dict es trazable a una variable ya calculada en generar_sugeridos(),
-    no un valor inventado.
+    """T28 (waykee 291765): motor de 3 promedios -- reemplaza al promedio móvil
+    corto (T19/T25) como base de cobertura/faltante/compra sugerida, en
+    paridad con la hoja Excel del área de compras. Cada campo es trazable a
+    una variable ya calculada en generar_sugeridos(), reproducible a mano
+    contra ventas_mensuales/kardex_diario (criterio de aceptación del ticket).
 
-    T25 (waykee 290148): feedback directo de Enrique sobre T19 -- la
-    explicación no era coherente porque no mostraba los datos que un humano
-    usaría para decidir. Se agregan:
-      - `incluido_promedio_3m` por mes en `serie_demanda`: marca cuáles de los
-        `meses_historia` puntos entraron realmente al promedio corto
-        (`meses_demanda`, los últimos N) usado para cobertura/faltante. Deja
-        el campo listo para que T21 marque además los meses excluidos por
-        desabasto (`meses_excluidos_desabasto`, aún vacío -- T21 no ha
-        aterrizado el umbral).
-      - `inventario_fin_mes`: saldo de fin de mes (kardex_diario.saldo_fin_dia
-        del último día con movimiento <= fin de mes) alineado a los mismos
-        meses de `serie_demanda`. `kardex_disponible=False` cuando la tabla
-        kardex_diario todavía no existe en el dataset (T20/290120 aún no
-        aterriza) -- el valor de cada mes viene en None y el frontend debe
-        mostrar el aviso de "disponible próximamente", igual que hace con
-        backorder/pedidos vía los endpoints de detalle."""
-    n_incluidos = min(meses_demanda, len(serie_pts))
-    corte = len(serie_pts) - n_incluidos
+    `historia` trae los `MESES_SERIE_DISPLAY` meses calendario contiguos (con
+    ceros para meses sin venta, igual que la hoja Excel) y el desglose de los
+    3 promedios: Promedio 1 = media de toda la ventana, Promedio 2 = media de
+    los últimos `PROMEDIO2_MESES`, Promedio 3 = media de la ventana con el
+    pico de cada mes restado (`promedio_3_ajustes`, con la fuente del ajuste
+    para el tooltip: `venta_mayor_transaccion` cuando ventas_stats_mensuales
+    ya aterrizó -- dataset v6, aún pendiente --, `dia_pico_kardex` como
+    fallback, o `sin_datos` cuando ninguna de las dos tablas existe)."""
     inventario_fin_mes = inventario_fin_mes or {}
+    corte_promedio_2 = max(0, len(historia_meses) - PROMEDIO2_MESES)
     return {
-        "serie_demanda": [
-            {
-                "anio_mes": anio_mes,
-                "cajas": cajas,
-                "incluido_promedio_3m": idx >= corte,
-            }
-            for idx, (anio_mes, cajas) in enumerate(serie_pts)
-        ],
-        "demanda_promedio_3m": round(demanda_promedio_3m, 2),
+        "historia": {
+            "meses": historia_meses,
+            "consumo": [round(v, 2) for v in historia_consumo],
+            "promedio_1": {"valor": round(promedio_1, 2)},
+            "promedio_2": {
+                "valor": round(promedio_2, 2),
+                "incluidos": [idx >= corte_promedio_2 for idx in range(len(historia_meses))],
+            },
+            "promedio_3": {
+                "valor": round(promedio_3, 2),
+                "ajustes": promedio_3_ajustes,
+            },
+        },
+        "promedio_general": round(promedio_general, 2),
+        "meses_actual": round(meses_actual, 2) if meses_actual is not None else None,
         "meses_con_venta": meses_con_venta,
         "meses_historia": meses_historia,
-        "meses_demanda": meses_demanda,
-        "meses_excluidos_desabasto": [],
         "inventario_fin_mes": [
-            {"anio_mes": anio_mes, "saldo": inventario_fin_mes.get(anio_mes)}
-            for anio_mes, _ in serie_pts
+            {"anio_mes": mes, "saldo": inventario_fin_mes.get(mes)} for mes in historia_meses
         ],
         "kardex_disponible": kardex_disponible,
         "inventario": {
@@ -216,7 +361,6 @@ def build_datos_decision(
         },
         "cobertura_actual": round(cobertura_actual, 2) if cobertura_actual is not None else None,
         "meses_objetivo": meses_objetivo,
-        "faltante_bruto": faltante_bruto,
         "proveedor": {
             "nombre": proveedor,
             "moq_cajas": moq_cajas,
@@ -229,11 +373,15 @@ def build_datos_decision(
             "cantidad_transferir": cantidad_transferir,
             "detalle_transferencias": detalle_transferencias,
         },
-        "redondeo": {
+        "compra": {
+            "compra_sugerida_cajas": compra_sugerida,
+            "compra_sugerida_m2": round(compra_sugerida * m2_por_caja, 2) if m2_por_caja else None,
             "cantidad_comprar_bruta": cantidad_comprar_bruta,
-            "cantidad_tras_moq": cantidad_tras_moq,
-            "cantidad_final": cantidad_final,
-            "motivo": calc_motivo_redondeo(cantidad_comprar_bruta, cantidad_tras_moq, cantidad_final, moq_cajas, cajas_por_pallet),
+            "cantidad_final_cajas": cantidad_final,
+            "cantidad_final_m2": round(cantidad_final * m2_por_caja, 2) if m2_por_caja else None,
+            "n_pallets": n_pallets,
+            "cajas_por_pallet": cajas_por_pallet,
+            "motivo": calc_motivo_redondeo_pallet(cantidad_comprar_bruta, cantidad_final, cajas_por_pallet),
         },
     }
 
@@ -337,6 +485,87 @@ def _saldos_fin_mes(puntos: list[tuple[str, float]], meses: list[str]) -> dict[s
     return resultado
 
 
+def _modo_promedio3(db: sqlite3.Connection) -> str:
+    """T28 (waykee 291765), mensaje puente: estrategia de 3 modos para el
+    ajuste de Promedio 3, en orden de preferencia -- (1) ventas_stats_mensuales
+    (dataset v6, aún no aterriza), (2) fallback kardex_diario (día pico), (3)
+    sin datos: sin ajuste. Un solo lugar decide el modo para todo el batch."""
+    if _tabla_existe(db, "ventas_stats_mensuales"):
+        return "stats"
+    if _tabla_existe(db, "kardex_diario"):
+        return "kardex"
+    return "ninguno"
+
+
+def _cargar_stats_mensuales(db: sqlite3.Connection, material_ids: list[str], placeholders: str):
+    rows = db.execute(
+        f"""SELECT material_id, plant, anio_mes, suma_cantidad, max_ticket, max_linea, fecha_max_ticket
+            FROM ventas_stats_mensuales
+            WHERE material_id IN ({placeholders})""",
+        material_ids,
+    ).fetchall()
+    return {(r["material_id"], r["plant"], r["anio_mes"]): r for r in rows}
+
+
+def _cargar_salidas_diarias(db: sqlite3.Connection, material_ids: list[str], placeholders: str):
+    rows = db.execute(
+        f"""SELECT material_id, plant, fecha, salidas
+            FROM kardex_diario
+            WHERE material_id IN ({placeholders}) AND salidas > 0
+            ORDER BY material_id, plant, fecha""",
+        material_ids,
+    ).fetchall()
+    salidas_por_linea: dict[tuple[str, str], list[tuple[str, float]]] = {}
+    for r in rows:
+        salidas_por_linea.setdefault((r["material_id"], r["plant"]), []).append((r["fecha"], r["salidas"]))
+    return salidas_por_linea
+
+
+def _ajuste_pico_mes(
+    modo: str,
+    material_id: str,
+    plant: str,
+    anio_mes: str,
+    m2_por_caja: Optional[float],
+    stats_por_linea_mes: dict,
+    salidas_por_linea: dict,
+    factor_m2_por_pieza: float = RATIO_M2_POR_PIEZA_FALLBACK,
+) -> dict:
+    """Ajuste (en cajas) a restar del mes para Promedio 3, con la estrategia de
+    3 modos de `_modo_promedio3`. Retorna también la metadata que el popup usa
+    en el tooltip: fuente del ajuste, fecha de la venta/día pico, y si ese pico
+    fue un outlier estadístico (solo aplica al modo kardex; el modo stats ya
+    identifica la transacción exacta, no requiere el test de MAD).
+    `factor_m2_por_pieza` convierte PROMEDIO3_CAMPO_STATS (max_ticket/max_linea,
+    en PIEZAS POS -- ver comprasai_v6_reconciliacion.json) a m2 antes de pasarlo
+    a calc_m2_a_cajas; el llamador lo deriva por línea (calc_factor_m2_por_pieza)."""
+    if modo == "stats":
+        row = stats_por_linea_mes.get((material_id, plant, anio_mes))
+        if not row:
+            return {"ajuste_cajas": 0.0, "fuente": "venta_mayor_transaccion", "fecha_pico": None, "es_outlier": None}
+        valor_piezas = row[PROMEDIO3_CAMPO_STATS] or 0.0
+        valor_m2 = valor_piezas * factor_m2_por_pieza
+        return {
+            "ajuste_cajas": calc_m2_a_cajas(valor_m2, m2_por_caja),
+            "fuente": "venta_mayor_transaccion",
+            "fecha_pico": row["fecha_max_ticket"],
+            "es_outlier": None,
+        }
+    if modo == "kardex":
+        dias_mes = [(f, s) for (f, s) in salidas_por_linea.get((material_id, plant), []) if f[:7] == anio_mes]
+        if not dias_mes:
+            return {"ajuste_cajas": 0.0, "fuente": "dia_pico_kardex", "fecha_pico": None, "es_outlier": False}
+        fecha_pico, salida_pico = max(dias_mes, key=lambda t: t[1])
+        valores_dia = [s for _, s in dias_mes]
+        return {
+            "ajuste_cajas": calc_m2_a_cajas(salida_pico, m2_por_caja),
+            "fuente": "dia_pico_kardex",
+            "fecha_pico": fecha_pico,
+            "es_outlier": calc_es_outlier_venta_dia(valores_dia, salida_pico),
+        }
+    return {"ajuste_cajas": 0.0, "fuente": "sin_datos", "fecha_pico": None, "es_outlier": None}
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -419,10 +648,16 @@ def generar_sugeridos(
 
     m2_por_caja_map = {r["material_id"]: r["m2_por_caja"] for r in candidatos}
     serie: dict[tuple[str, str], list[tuple[str, float]]] = {}
+    # m2 CRUDO (sin convertir a cajas) por línea+mes -- lo necesita
+    # _consumo_mes_referencia_corregido para derivar el factor piezas->m2 de
+    # cada material contra ventas_stats_mensuales (ver RATIO_M2_POR_PIEZA_FALLBACK).
+    m2_por_linea_mes: dict[tuple[str, str], dict[str, float]] = {}
     for r in ventas_rows:
         key = (r["material_id"], r["plant"])
-        cajas = calc_m2_a_cajas(r["m2"] or 0.0, m2_por_caja_map.get(r["material_id"]))
+        m2 = r["m2"] or 0.0
+        cajas = calc_m2_a_cajas(m2, m2_por_caja_map.get(r["material_id"]))
         serie.setdefault(key, []).append((r["anio_mes"], cajas))
+        m2_por_linea_mes.setdefault(key, {})[r["anio_mes"]] = m2
 
     # T25 (waykee 290148): inventario fin de mes, batch en UNA query (mismo
     # patrón que ventas_rows arriba) -- kardex_diario todavía no aterriza en
@@ -431,6 +666,7 @@ def generar_sugeridos(
     # queda en None hasta que la tabla exista.
     kardex_disponible = _tabla_existe(db, "kardex_diario")
     kardex_por_linea: dict[tuple[str, str], list[tuple[str, float]]] = {}
+    salidas_por_linea: dict[tuple[str, str], list[tuple[str, float]]] = {}
     if kardex_disponible:
         kardex_rows = db.execute(
             f"""SELECT material_id, plant, fecha, saldo_fin_dia
@@ -443,39 +679,117 @@ def generar_sugeridos(
             kardex_por_linea.setdefault((kr["material_id"], kr["plant"]), []).append(
                 (kr["fecha"], kr["saldo_fin_dia"])
             )
+        salidas_por_linea = _cargar_salidas_diarias(db, material_ids, placeholders)
 
-    def demanda_mensual(material_id: str, plant: str, n_meses: int) -> float:
-        puntos = serie.get((material_id, plant), [])[-n_meses:]
-        if not puntos:
-            return 0.0
-        return sum(v for _, v in puntos) / len(puntos)
+    # T28 (waykee 291765): estrategia de Promedio 3 resuelta UNA vez por
+    # request (no por línea) -- ver mensaje puente waykee 290066->291765.
+    modo_promedio3 = _modo_promedio3(db)
+    stats_por_linea_mes: dict = {}
+    if modo_promedio3 == "stats":
+        stats_por_linea_mes = _cargar_stats_mensuales(db, material_ids, placeholders)
 
     # T27 (waykee 291745): serie de EXHIBICIÓN para el popup de decisión --
     # últimos MESES_SERIE_DISPLAY meses calendario contiguos, rellenando con 0
     # los meses sin venta (a diferencia de `serie`, que solo trae meses con
-    # movimiento y por eso deja huecos). No sustituye a `serie`: la demanda
-    # promedio / tendencia / confianza siguen calculándose sobre la serie
-    # dispersa real, sin ceros inventados de por medio.
+    # movimiento y por eso deja huecos). Con el motor de 3 promedios (T28) esta
+    # serie YA NO es solo informativa: es la base de PROMEDIO_GENERAL, que a su
+    # vez maneja cobertura/faltante/compra sugerida.
     ref_row = db.execute("SELECT MAX(anio_mes) AS m FROM ventas_mensuales").fetchone()
     ref_anio_mes = ref_row["m"] if ref_row and ref_row["m"] else datetime.now(timezone.utc).strftime("%Y-%m")
     meses_display = _meses_contiguos(ref_anio_mes, MESES_SERIE_DISPLAY)
 
-    def serie_pts_display(material_id: str, plant: str) -> list[tuple[str, float]]:
+    mes_ref = meses_display[-1]
+
+    def factor_piezas_a_m2_linea(material_id: str, plant: str) -> float:
+        """Factor piezas POS -> m2 de esta línea (ver calc_factor_m2_por_pieza),
+        derivado SOLO de meses previos al de referencia (nunca del propio mes_ref,
+        que es justo el que se está corrigiendo -- evita circularidad). Se usa
+        tanto para corregir el consumo del mes de referencia como para convertir
+        max_ticket/max_linea (piezas) a m2 en el ajuste de Promedio 3 de
+        CUALQUIER mes de la ventana, ya que esas columnas de
+        ventas_stats_mensuales están en piezas POS en todos los meses, no solo
+        en el de referencia (ver comprasai_v6_reconciliacion.json)."""
+        m2_por_mes = m2_por_linea_mes.get((material_id, plant), {})
+        pares_previos = [
+            (m2_por_mes[mes], stats_por_linea_mes[(material_id, plant, mes)]["suma_cantidad"] or 0.0)
+            for mes in meses_display
+            if mes != mes_ref and mes in m2_por_mes and (material_id, plant, mes) in stats_por_linea_mes
+        ]
+        return calc_factor_m2_por_pieza(pares_previos)
+
+    def serie_pts_display(
+        material_id: str, plant: str, m2_por_caja: Optional[float] = None
+    ) -> list[tuple[str, float]]:
         ventas_por_mes = dict(serie.get((material_id, plant), []))
-        return [(mes, ventas_por_mes.get(mes, 0.0)) for mes in meses_display]
+        puntos = [(mes, ventas_por_mes.get(mes, 0.0)) for mes in meses_display]
+        # T28 (waykee 291765, decisión cerrada 17-sep-2026): el mes de
+        # REFERENCIA (el más reciente, hoy 2026-08) viene PARCIAL en
+        # ventas_mensuales -- se bloquea ese fallback y se recalcula desde
+        # ventas_stats_mensuales.suma_cantidad (piezas POS, completo). Solo
+        # aplica si el dataset v6 está disponible (modo_promedio3 == "stats").
+        if modo_promedio3 != "stats":
+            return puntos
+        stats_ref = stats_por_linea_mes.get((material_id, plant, mes_ref))
+        if stats_ref is None:
+            return puntos
+        factor = factor_piezas_a_m2_linea(material_id, plant)
+        cajas_corregidas = calc_consumo_mes_referencia_corregido(
+            stats_ref["suma_cantidad"] or 0.0, m2_por_caja, factor,
+        )
+        puntos = list(puntos)
+        puntos[-1] = (mes_ref, cajas_corregidas)
+        return puntos
+
+    def promedios_linea(material_id: str, plant: str, m2_por_caja: Optional[float]) -> dict:
+        """T28: Promedio 1 (media de la ventana completa), Promedio 2 (media de
+        los últimos PROMEDIO2_MESES) y Promedio 3 (ventana completa con el pico
+        de cada mes restado, ver _ajuste_pico_mes) + PROMEDIO_GENERAL."""
+        puntos = serie_pts_display(material_id, plant, m2_por_caja)
+        consumo = [v for _, v in puntos]
+        promedio_1 = calc_promedio_simple(consumo)
+        promedio_2 = calc_promedio_ultimos_n(consumo, PROMEDIO2_MESES)
+        factor_stats = (
+            factor_piezas_a_m2_linea(material_id, plant) if modo_promedio3 == "stats" else RATIO_M2_POR_PIEZA_FALLBACK
+        )
+        ajustes = []
+        valores_ajustados = []
+        for anio_mes, valor_mes in puntos:
+            ajuste = _ajuste_pico_mes(
+                modo_promedio3, material_id, plant, anio_mes, m2_por_caja,
+                stats_por_linea_mes, salidas_por_linea, factor_stats,
+            )
+            valor_ajustado = calc_valor_mes_ajustado(valor_mes, ajuste["ajuste_cajas"])
+            valores_ajustados.append(valor_ajustado)
+            ajustes.append({
+                "anio_mes": anio_mes,
+                "valor_ajustado": round(valor_ajustado, 2),
+                **ajuste,
+            })
+        promedio_3 = calc_promedio_simple(valores_ajustados)
+        promedio_general = calc_promedio_general(promedio_1, promedio_2, promedio_3)
+        return {
+            "consumo": consumo,
+            "promedio_1": promedio_1,
+            "promedio_2": promedio_2,
+            "promedio_3": promedio_3,
+            "promedio_3_ajustes": ajustes,
+            "promedio_general": promedio_general,
+        }
 
     # Info por (material,plant) para resolver transferencias intra-corredor (RN-02).
     info_por_linea = {}
     for r in candidatos:
         key = (r["material_id"], r["plant"])
         disp_neto = round((r["disponible"] or 0) + (r["transito"] or 0) - (r["comprometido"] or 0), 2)
-        dem = demanda_mensual(r["material_id"], r["plant"], MESES_DEMANDA)
+        promedios = promedios_linea(r["material_id"], r["plant"], r["m2_por_caja"])
+        dem = promedios["promedio_general"]
         cobertura = calc_cobertura_meses(disp_neto, dem)
         info_por_linea[key] = {
             "row": r,
             "disponible_neto": disp_neto,
             "demanda_mensual": dem,
             "cobertura": cobertura,
+            "promedios": promedios,
         }
 
     # Índice material+corredor -> lista de plants, precomputado UNA vez.
@@ -532,7 +846,15 @@ def generar_sugeridos(
         if solo_criticos and cobertura > 0:
             continue
 
-        faltante_bruto = round((objetivo - cobertura) * dem, 2)
+        # T28 (waykee 291765): compra sugerida = fórmula del Excel de compras
+        # (MesesObjetivo x PROMEDIO_GENERAL - Disponible - Tránsito + Comprometido,
+        # sin netear de antemano -- ver calc_compra_sugerida), NO el faltante de
+        # cobertura*demanda de la versión anterior. La cobertura sigue viniendo
+        # de calc_cobertura_meses (RN-01, disponible_neto/dem) para decidir SI
+        # se sugiere; el MONTO ya no depende de ese neteo.
+        compra_sugerida = calc_compra_sugerida(
+            objetivo, dem, r["disponible"], r["transito"], r["comprometido"]
+        )
 
         # RN-02: transferencia antes que compra, dentro del mismo corredor.
         cantidad_transferir = 0.0
@@ -543,7 +865,7 @@ def generar_sugeridos(
                 if k[1] != r["plant"]
             ]
             hermanos_keys.sort(key=lambda k: -_excedente_disponible(*k))
-            restante = faltante_bruto
+            restante = compra_sugerida
             for h_material, h_plant in hermanos_keys:
                 if restante <= 0:
                     break
@@ -557,10 +879,13 @@ def generar_sugeridos(
                 detalle_transferencias.append({"desde_plant": h_plant, "cantidad": round(usar, 2)})
             cantidad_transferir = round(cantidad_transferir, 2)
 
-        cantidad_comprar_bruta = round(max(0.0, faltante_bruto - cantidad_transferir), 2)
+        cantidad_comprar_bruta = round(max(0.0, compra_sugerida - cantidad_transferir), 2)
 
-        cantidad_tras_moq = calc_redondeo_moq(cantidad_comprar_bruta, int(r["moq_cajas"]))
-        cantidad_final = calc_redondeo_pallet(cantidad_tras_moq, int(r["cajas_por_pallet"]))
+        # T28: redondeo SOLO a pallet completo (sin MOQ -- el Excel de compras
+        # no aplica mínimo de proveedor, solo múltiplo de pallet).
+        cantidad_final = calc_redondeo_pallets_completos(cantidad_comprar_bruta, int(r["cajas_por_pallet"]))
+        cajas_por_pallet_int = int(r["cajas_por_pallet"]) or DEFAULT_PALLET
+        n_pallets = cantidad_final // cajas_por_pallet_int if cajas_por_pallet_int else 0
 
         serie_pts = serie.get(key, [])[-MESES_HISTORIA:]
         tendencia = calc_tendencia([v for _, v in serie_pts])
@@ -572,30 +897,36 @@ def generar_sugeridos(
         costo_unitario = r["costo"] or 0
         costo_estimado = round(cantidad_final * costo_unitario, 2)
 
+        meses_actual = calc_cobertura_meses(r["disponible"] or 0.0, dem)
+
         partes_explicacion = [
             f"Cobertura actual {cobertura:.1f} meses vs objetivo {objetivo:.1f} meses "
-            f"(demanda promedio {dem:.0f} cajas/mes, disponible neto {info['disponible_neto']:.0f} cajas)."
+            f"(PROMEDIO general {dem:.0f} cajas/mes, disponible neto {info['disponible_neto']:.0f} cajas)."
         ]
         if cantidad_transferir > 0:
             origenes = ", ".join(f"{d['desde_plant']} ({d['cantidad']:.0f})" for d in detalle_transferencias)
             partes_explicacion.append(f"Se cubren {cantidad_transferir:.0f} cajas por transferencia desde {origenes} antes de comprar (RN-02).")
         if cantidad_comprar_bruta > 0:
-            partes_explicacion.append(f"Faltante a comprar: {cantidad_comprar_bruta:.0f} cajas, redondeado a {cantidad_final} cajas por MOQ/pallet del proveedor {r['proveedor'] or 's/proveedor'}.")
+            partes_explicacion.append(f"Faltante a comprar: {cantidad_comprar_bruta:.0f} cajas, redondeado a {cantidad_final} cajas ({n_pallets} pallet(s) de {cajas_por_pallet_int}) del proveedor {r['proveedor'] or 's/proveedor'}.")
         if tendencia == "alza":
             partes_explicacion.append("La demanda muestra tendencia al alza en el último mes.")
         elif tendencia == "baja":
             partes_explicacion.append("La demanda muestra tendencia a la baja en el último mes.")
         explicacion = " ".join(partes_explicacion)
 
-        serie_pts_disp = serie_pts_display(*key)
         saldos_fin_mes = _saldos_fin_mes(kardex_por_linea.get(key, []), meses_display)
 
         datos_decision = build_datos_decision(
-            serie_pts=serie_pts_disp,
-            demanda_promedio_3m=dem,
+            historia_meses=meses_display,
+            historia_consumo=info["promedios"]["consumo"],
+            promedio_1=info["promedios"]["promedio_1"],
+            promedio_2=info["promedios"]["promedio_2"],
+            promedio_3=info["promedios"]["promedio_3"],
+            promedio_3_ajustes=info["promedios"]["promedio_3_ajustes"],
+            promedio_general=dem,
+            meses_actual=meses_actual,
             meses_con_venta=meses_con_venta,
             meses_historia=MESES_HISTORIA,
-            meses_demanda=MESES_DEMANDA,
             inventario_fin_mes=saldos_fin_mes,
             kardex_disponible=kardex_disponible,
             disponible=r["disponible"],
@@ -604,18 +935,18 @@ def generar_sugeridos(
             disponible_neto=info["disponible_neto"],
             cobertura_actual=cobertura,
             meses_objetivo=objetivo,
-            faltante_bruto=faltante_bruto,
+            compra_sugerida=compra_sugerida,
             proveedor=r["proveedor"],
             moq_cajas=int(r["moq_cajas"]),
-            cajas_por_pallet=int(r["cajas_por_pallet"]),
+            cajas_por_pallet=cajas_por_pallet_int,
             lead_time_dias=r["lead_time_dias"],
             m2_por_caja=r["m2_por_caja"],
             costo_unitario=costo_unitario,
             cantidad_transferir=cantidad_transferir,
             detalle_transferencias=detalle_transferencias,
             cantidad_comprar_bruta=cantidad_comprar_bruta,
-            cantidad_tras_moq=cantidad_tras_moq,
             cantidad_final=cantidad_final,
+            n_pallets=n_pallets,
         )
 
         items.append({
@@ -638,7 +969,7 @@ def generar_sugeridos(
             "capa": capa,
             "explicacion": explicacion,
             "datos_decision": datos_decision,
-            "_faltante_bruto": faltante_bruto,
+            "_faltante_bruto": compra_sugerida,
             "_costo_unitario": costo_unitario,
         })
 
@@ -707,10 +1038,13 @@ def lista_sugeridos(
     _ensure_tables(db)
     where = "WHERE estado = ?" if estado else ""
     params = [estado] if estado else []
-    rows = db.execute(
-        f"""SELECT * FROM sugeridos_generados {where} ORDER BY actualizado DESC""",
-        params,
-    ).fetchall()
+    rows = [
+        dict(r)
+        for r in db.execute(
+            f"""SELECT * FROM sugeridos_generados {where} ORDER BY actualizado DESC""",
+            params,
+        ).fetchall()
+    ]
     for r in rows:
         # T19 (waykee 290116): factores_json queda como columna muerta
         # (compatibilidad con filas históricas) -- ya no se expone al

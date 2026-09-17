@@ -132,100 +132,6 @@ function Combobox({ label, value, options, onChange, placeholder }) {
   );
 }
 
-/** T19 (waykee 290116): la explicación mostraba una lista "factores" con
- * pesos hardcodeados (40/25/15/10/10) que no salían de ningún cálculo real.
- * Ahora se muestran los datos REALES que entraron en la fórmula del backend
- * (datos_decision): serie de demanda, desglose de inventario, fórmula
- * cobertura→faltante→redondeo, y el detalle de transferencias RN-02.
- *
- * T25 (waykee 290148): feedback directo de Enrique -- la explicación no era
- * coherente porque no mostraba los datos que un humano usaría para decidir.
- * Se agrega: (1) marca visual de qué meses entran al promedio de 3, con
- * espacio ya reservado para los que T21 excluya por desabasto; (2) fila de
- * inventario fin de mes (kardex_diario, "disponible próximamente" mientras
- * T20 no aterriza); (3) comprometido/pedidos-por-cumplir clickeables con
- * drill-down documento a documento (T25/waykee 290147, "en camino" mientras
- * la tabla no exista). */
-function SerieYInventarioTabla({ dd }) {
-  const serie = dd?.serie_demanda;
-  if (!serie || serie.length === 0) return null;
-  const inventarioPorMes = new Map((dd.inventario_fin_mes || []).map((p) => [p.anio_mes, p.saldo]));
-  const excluidosDesabasto = new Set(dd.meses_excluidos_desabasto || []);
-
-  return (
-    <div style={{ marginTop: 14 }}>
-      <div className="footnote text-secondary" style={{ marginBottom: 4 }}>
-        Ventas e inventario, últimos {serie.length} meses
-      </div>
-      <table className="table table--compact">
-        <thead>
-          <tr>
-            <th></th>
-            {serie.map((p) => {
-              const excluido = excluidosDesabasto.has(p.anio_mes);
-              const incluido = p.incluido_promedio_3m && !excluido;
-              return (
-                <th
-                  key={p.anio_mes}
-                  className="num"
-                  style={{ opacity: incluido ? 1 : 0.55 }}
-                  title={
-                    excluido
-                      ? "Excluido del promedio por desabasto (RN próxima, T21)"
-                      : p.incluido_promedio_3m
-                      ? `Incluido en el promedio de ${dd.meses_demanda ?? 3} meses`
-                      : `Fuera de la ventana del promedio de ${dd.meses_demanda ?? 3} meses`
-                  }
-                >
-                  {p.anio_mes}
-                </th>
-              );
-            })}
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td className="footnote text-secondary">Ventas (caj)</td>
-            {serie.map((p) => {
-              const excluido = excluidosDesabasto.has(p.anio_mes);
-              const incluido = p.incluido_promedio_3m && !excluido;
-              return (
-                <td
-                  key={p.anio_mes}
-                  className="num tnum"
-                  style={{ opacity: incluido ? 1 : 0.55, fontWeight: incluido ? "var(--fw-semibold)" : "normal" }}
-                >
-                  {fmtInt.format(p.cajas)}
-                  {incluido && <sup style={{ marginLeft: 2 }}>●</sup>}
-                </td>
-              );
-            })}
-          </tr>
-          <tr>
-            <td className="footnote text-secondary">Inv. fin de mes</td>
-            {serie.map((p) => {
-              const saldo = inventarioPorMes.get(p.anio_mes);
-              return (
-                <td key={p.anio_mes} className="num tnum">
-                  {saldo === undefined || saldo === null ? (
-                    <span className="text-tertiary" title="kardex_diario aún no disponible en este dataset (T20)">—</span>
-                  ) : (
-                    fmtInt.format(saldo)
-                  )}
-                </td>
-              );
-            })}
-          </tr>
-        </tbody>
-      </table>
-      <div className="caption text-tertiary" style={{ marginTop: 2 }}>
-        ● entra al promedio de {dd.meses_demanda ?? 3} meses usado para cobertura/faltante.
-        {dd.kardex_disponible === false && " Inventario fin de mes: disponible próximamente (kardex_diario en extracción, T20)."}
-      </div>
-    </div>
-  );
-}
-
 /** T25 (waykee 290148): botón que expande el detalle documento-a-documento
  * (backorder) o PO-a-PO (pedidos por cumplir) bajo demanda -- no se precarga
  * para no pegarle a la API por cada línea de la tabla. */
@@ -306,12 +212,18 @@ function DrillDown({ label, cantidad, cargar, columnas }) {
   );
 }
 
-/** T27 (waykee 291745): popup grande de decisión -- sustituye al panel lateral
- * sticky de 400px (`ExplainPanel`). Se abre al hacer click en cualquier parte
- * del renglón, en las 3 pestañas (Propuestos/Aprobados/Rechazados). Mismo
- * contenido completo sin importar el estado; en Aprobados/Rechazados se agrega
- * estado + quién/cuándo decidió en el encabezado. */
-function DecisionModal({ row, onClose }) {
+/** T28 (waykee 291765, replanteo del motor de 3 promedios): popup rediseñado
+ * para calcar la hoja de compras en Excel que usa el planeador -- bloque de
+ * inventario/backorder/promedio arriba, tabla histórica Consumo/Promedio 1/2/3
+ * con marcas de qué mes entra a cada promedio, y la cadena
+ * Meses Objetivo → Compra Sugerida → Redondeo a Pallets → Compra Definitiva
+ * abajo. Consume `datos_decision` en su forma actual (`historia`,
+ * `promedio_general`, `meses_actual`, `compra`, `inventario`) -- reemplaza el
+ * shape viejo (`demanda_promedio_3m`, `redondeo`, `faltante_bruto`) que ya no
+ * devuelve el backend. Se abre al hacer click en cualquier parte del renglón,
+ * en las 3 pestañas (Propuestos/Aprobados/Rechazados); en Aprobados/Rechazados
+ * se oculta Aceptar/Descartar y se muestra el estado en el encabezado. */
+function DecisionModal({ row, onClose, onDecidir }) {
   useEffect(() => {
     function onKey(e) {
       if (e.key === "Escape") onClose();
@@ -325,8 +237,9 @@ function DecisionModal({ row, onClose }) {
   const tieneDatosDecision = !!(dd && Object.keys(dd).length > 0);
   const inv = dd?.inventario || {};
   const prov = dd?.proveedor || {};
-  const red = dd?.redondeo || {};
+  const compra = dd?.compra || {};
   const trans = dd?.transferencia || { cantidad_transferir: row.cantidad_transferir, detalle_transferencias: row.detalle_transferencias };
+  const hist = dd?.historia || { meses: [], consumo: [], promedio_1: {}, promedio_2: {}, promedio_3: {} };
   const esDecidido = row.estado && row.estado !== "propuesto";
 
   return (
@@ -365,56 +278,130 @@ function DecisionModal({ row, onClose }) {
 
         {tieneDatosDecision ? (
           <>
-            <SerieYInventarioTabla dd={dd} />
-            <div className="caption text-tertiary" style={{ marginTop: 2 }}>
-              Promedio {dd.meses_demanda ?? 3}m: {fmtInt.format(dd.demanda_promedio_3m || 0)} caj/mes · {dd.meses_con_venta ?? "—"}/{dd.meses_historia ?? 6} meses con venta
-            </div>
-
-            <div style={{ marginTop: 14 }}>
-              <div className="footnote text-secondary" style={{ marginBottom: 4 }}>Saldo de inventario actual (cajas)</div>
-              <div className="footnote" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                <span>Disponible: <strong className="tnum">{fmtInt.format(inv.disponible || 0)}</strong></span>
-                <span>
-                  Backorder de compra (en tránsito):{" "}
+            <div className="card card--flat" style={{ marginTop: 12, padding: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+                <div>
+                  <div className="footnote text-secondary">Inventario actual</div>
+                  <strong className="tnum">{fmtInt.format(inv.disponible || 0)} caj</strong>
+                </div>
+                <div>
+                  <div className="footnote text-secondary">Backorder compra (tránsito)</div>
                   <DrillDown
                     label="Pedidos por cumplir"
                     cantidad={inv.transito || 0}
                     cargar={() => api.sugeridos.pedidosDetalle(row.material_id, row.plant)}
                     columnas={PEDIDOS_COLUMNAS}
                   />
-                </span>
-                <span>
-                  Backorder de venta (comprometido):{" "}
+                </div>
+                <div>
+                  <div className="footnote text-secondary">Backorder venta (comprometido)</div>
                   <DrillDown
                     label="Backorder"
                     cantidad={inv.comprometido || 0}
                     cargar={() => api.sugeridos.backorderDetalle(row.material_id, row.plant)}
                     columnas={BACKORDER_COLUMNAS}
                   />
-                </span>
-                <span>
-                  Neto: <strong className="tnum">{fmtInt.format(inv.disponible_neto || 0)}</strong>
-                  {inv.sobrevendido && " ⚠"}
-                </span>
+                </div>
+                <div>
+                  <div className="footnote text-secondary">PROMEDIO general</div>
+                  <strong className="tnum">{fmtInt.format(dd.promedio_general || 0)} caj/mes</strong>
+                </div>
+                <div>
+                  <div className="footnote text-secondary">Meses actual</div>
+                  <strong className="tnum">{(dd.meses_actual ?? 0).toFixed(2)}</strong>
+                </div>
+                <div>
+                  <div className="footnote text-secondary">Meses objetivo</div>
+                  <strong className="tnum">{dd.meses_objetivo ?? row.cobertura_objetivo ?? "—"}</strong>
+                </div>
               </div>
             </div>
 
             <div style={{ marginTop: 14 }}>
-              <div className="footnote text-secondary" style={{ marginBottom: 4 }}>Cobertura según pronóstico vs objetivo ABC</div>
-              <div className="footnote">
-                Meses de inventario: <strong className="tnum">{dd.cobertura_actual?.toFixed?.(1) ?? "—"}</strong> vs objetivo{" "}
-                <strong className="tnum">{dd.meses_objetivo ?? row.cobertura_objetivo ?? "—"}</strong> meses → faltante{" "}
-                <strong className="tnum">{fmtInt.format(dd.faltante_bruto || 0)}</strong> cajas
+              <div className="footnote text-secondary" style={{ marginBottom: 4 }}>
+                Histórico de consumo y promedios (cajas), {dd.meses_con_venta ?? "—"}/{dd.meses_historia ?? hist.meses.length} meses con venta
               </div>
+              <table className="table table--compact">
+                <thead>
+                  <tr>
+                    <th></th>
+                    {hist.meses.map((m) => <th key={m} className="num">{m}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="footnote text-secondary">Consumo</td>
+                    {hist.consumo.map((v, i) => (
+                      <td key={hist.meses[i]} className="num tnum">{fmtInt.format(v)}</td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <td className="footnote text-secondary" title={`Promedio simple de los ${hist.meses.length} meses`}>
+                      Promedio 1
+                    </td>
+                    {hist.meses.map((m, i) => <td key={m} className="num tnum" style={{ opacity: 0.55 }}>{fmtInt.format(hist.consumo[i])}</td>)}
+                  </tr>
+                  <tr>
+                    <td className="footnote text-secondary" title="Promedio de los últimos 2 meses">Promedio 2</td>
+                    {hist.meses.map((m, i) => {
+                      const incluido = !!hist.promedio_2?.incluidos?.[i];
+                      return (
+                        <td key={m} className="num tnum" style={{ opacity: incluido ? 1 : 0.35, fontWeight: incluido ? "var(--fw-semibold)" : "normal" }}>
+                          {incluido ? fmtInt.format(hist.consumo[i]) : "—"}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  <tr>
+                    <td className="footnote text-secondary" title="Promedio de los 5 meses restando la venta mayor de cada mes">Promedio 3</td>
+                    {hist.meses.map((m, i) => {
+                      const ajuste = hist.promedio_3?.ajustes?.[i];
+                      const tieneAjuste = !!ajuste && (ajuste.ajuste_cajas || 0) > 0;
+                      const titulo = tieneAjuste
+                        ? `Se resta la venta mayor: ${fmtInt.format(ajuste.ajuste_cajas)} caj${ajuste.fecha_pico ? ` el ${fmtDate(ajuste.fecha_pico)}` : ""}`
+                        : "Sin ajuste (no hubo venta atípica que restar)";
+                      return (
+                        <td key={m} className="num tnum" title={titulo}>
+                          {fmtInt.format(ajuste?.valor_ajustado ?? hist.consumo[i])}
+                          {tieneAjuste && <sup style={{ marginLeft: 2 }}>−{fmtInt.format(ajuste.ajuste_cajas)}</sup>}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td className="footnote text-secondary">→ Promedio 1</td>
+                    <td className="num tnum" colSpan={hist.meses.length}>{fmtInt.format(hist.promedio_1?.valor || 0)}</td>
+                  </tr>
+                  <tr>
+                    <td className="footnote text-secondary">→ Promedio 2</td>
+                    <td className="num tnum" colSpan={hist.meses.length}>{fmtInt.format(hist.promedio_2?.valor || 0)}</td>
+                  </tr>
+                  <tr>
+                    <td className="footnote text-secondary">→ Promedio 3</td>
+                    <td className="num tnum" colSpan={hist.meses.length}>{fmtInt.format(hist.promedio_3?.valor || 0)}</td>
+                  </tr>
+                  <tr style={{ background: "var(--accent-soft)" }}>
+                    <td className="footnote" style={{ fontWeight: "var(--fw-semibold)" }}>PROMEDIO GENERAL</td>
+                    <td className="num tnum" colSpan={hist.meses.length} style={{ fontWeight: "var(--fw-semibold)" }}>
+                      {fmtInt.format(dd.promedio_general || 0)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
 
             <div style={{ marginTop: 14 }}>
-              <div className="footnote text-secondary" style={{ marginBottom: 4 }}>Fórmula</div>
+              <div className="footnote text-secondary" style={{ marginBottom: 4 }}>Cálculo de compra</div>
               <div className="footnote">
-                Promedio <strong className="tnum">{fmtInt.format(dd.demanda_promedio_3m || 0)}</strong> caj/mes → cobertura actual{" "}
-                <strong className="tnum">{dd.cobertura_actual?.toFixed?.(1) ?? "—"}</strong> vs objetivo{" "}
-                <strong className="tnum">{dd.meses_objetivo ?? "—"}</strong> meses → faltante{" "}
-                <strong className="tnum">{fmtInt.format(dd.faltante_bruto || 0)}</strong> cajas
+                Meses objetivo <strong className="tnum">{dd.meses_objetivo ?? "—"}</strong> × Promedio general{" "}
+                <strong className="tnum">{fmtInt.format(dd.promedio_general || 0)}</strong> − Inventario{" "}
+                <strong className="tnum">{fmtInt.format(inv.disponible || 0)}</strong> − Tránsito{" "}
+                <strong className="tnum">{fmtInt.format(inv.transito || 0)}</strong> + Comprometido{" "}
+                <strong className="tnum">{fmtInt.format(inv.comprometido || 0)}</strong> = Compra sugerida{" "}
+                <strong className="tnum">{fmtInt.format(compra.compra_sugerida_cajas || 0)}</strong> caj{" "}
+                ({fmtInt.format(compra.compra_sugerida_m2 || 0)} m²)
               </div>
               {trans.cantidad_transferir > 0 && (
                 <div className="footnote" style={{ marginTop: 4, color: "var(--text-secondary)" }}>
@@ -423,10 +410,16 @@ function DecisionModal({ row, onClose }) {
                 </div>
               )}
               <div className="footnote" style={{ marginTop: 4 }}>
-                Compra bruta <strong className="tnum">{fmtInt.format(red.cantidad_comprar_bruta || 0)}</strong> → final{" "}
-                <strong className="tnum">{fmtInt.format(red.cantidad_final ?? row.cantidad_final)}</strong> cajas (MOQ/pallet)
+                Redondeo a pallets: <strong className="tnum">{fmtInt.format(compra.n_pallets || 0)}</strong> pallet{compra.n_pallets === 1 ? "" : "s"} ×{" "}
+                <strong className="tnum">{compra.cajas_por_pallet ?? "—"}</strong> caj/pallet
               </div>
-              {red.motivo && <div className="caption text-tertiary" style={{ marginTop: 2 }}>{red.motivo}</div>}
+              <div
+                className="footnote"
+                style={{ marginTop: 8, padding: "8px 12px", background: "var(--accent-soft)", borderRadius: 6, fontWeight: "var(--fw-semibold)" }}
+              >
+                COMPRA DEFINITIVA: {fmtInt.format(compra.cantidad_final_cajas ?? row.cantidad_final)} caj ({fmtInt.format(compra.cantidad_final_m2 || 0)} m²)
+              </div>
+              {compra.motivo && <div className="caption text-tertiary" style={{ marginTop: 2 }}>{compra.motivo}</div>}
             </div>
 
             <div style={{ marginTop: 14 }}>
@@ -449,6 +442,12 @@ function DecisionModal({ row, onClose }) {
         </div>
         <div className="modal__actions">
           <button className="btn btn--ghost" onClick={onClose}>Cerrar</button>
+          {!esDecidido && (
+            <>
+              <button className="btn btn--danger" onClick={() => onDecidir(row, "rechazar")}>Descartar</button>
+              <button className="btn btn--primary" onClick={() => onDecidir(row, "aprobar")}>Aceptar</button>
+            </>
+          )}
         </div>
       </div>
     </>
@@ -906,7 +905,16 @@ export default function Sugeridos() {
 
       </div>
 
-      {explainRow && <DecisionModal row={explainRow} onClose={() => setExplainRow(null)} />}
+      {explainRow && (
+        <DecisionModal
+          row={explainRow}
+          onClose={() => setExplainRow(null)}
+          onDecidir={(r, accion) => {
+            setApprove({ rows: [r], accion });
+            setExplainRow(null);
+          }}
+        />
+      )}
       {editRow && <EditModal row={editRow} onClose={() => setEditRow(null)} onSaved={onEditSaved} />}
       {approve && <ApproveModal rows={approve.rows} accion={approve.accion} onClose={() => setApprove(null)} onDone={onDecided} />}
     </div>
