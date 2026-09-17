@@ -41,6 +41,7 @@ router = APIRouter(prefix="/api/engines/sugeridos", tags=["engines:sugeridos"])
 
 MESES_HISTORIA = 6  # ventana de meses usada para demanda promedio y tendencia
 MESES_DEMANDA = 3    # promedio móvil corto para cobertura/faltante (más reactivo)
+MESES_SERIE_DISPLAY = 5  # T27 (waykee 291745): meses calendario contiguos para el popup de decisión
 DEFAULT_MOQ = 20
 DEFAULT_PALLET = 40
 DEFAULT_OBJETIVO_MESES = 2.0
@@ -297,6 +298,25 @@ def _tabla_existe(db: sqlite3.Connection, tabla: str) -> bool:
     return row is not None
 
 
+def _meses_contiguos(ref_anio_mes: str, n: int) -> list[str]:
+    """T27 (waykee 291745): últimos `n` meses CALENDARIO contiguos terminando
+    en `ref_anio_mes` ('YYYY-MM'), ascendente, sin huecos -- a diferencia de
+    `serie` (armada solo con meses que tuvieron venta en ventas_mensuales),
+    esta lista siempre trae exactamente `n` elementos aunque algún mes no
+    haya tenido ventas (el llamador rellena esos meses con 0). Mismo criterio
+    de mes de referencia que remates.py: MAX(anio_mes) global de
+    ventas_mensuales, con fallback a la fecha actual si la tabla está vacía."""
+    year, month = (int(x) for x in ref_anio_mes.split("-"))
+    meses = []
+    for i in range(n - 1, -1, -1):
+        y, m = year, month - i
+        while m <= 0:
+            m += 12
+            y -= 1
+        meses.append(f"{y:04d}-{m:02d}")
+    return meses
+
+
 def _saldos_fin_mes(puntos: list[tuple[str, float]], meses: list[str]) -> dict[str, Optional[float]]:
     """T25 (waykee 290148): inventario fin de mes = saldo_fin_dia del último
     registro de kardex_diario con fecha <= fin del mes -- el kardex solo tiene
@@ -430,6 +450,20 @@ def generar_sugeridos(
             return 0.0
         return sum(v for _, v in puntos) / len(puntos)
 
+    # T27 (waykee 291745): serie de EXHIBICIÓN para el popup de decisión --
+    # últimos MESES_SERIE_DISPLAY meses calendario contiguos, rellenando con 0
+    # los meses sin venta (a diferencia de `serie`, que solo trae meses con
+    # movimiento y por eso deja huecos). No sustituye a `serie`: la demanda
+    # promedio / tendencia / confianza siguen calculándose sobre la serie
+    # dispersa real, sin ceros inventados de por medio.
+    ref_row = db.execute("SELECT MAX(anio_mes) AS m FROM ventas_mensuales").fetchone()
+    ref_anio_mes = ref_row["m"] if ref_row and ref_row["m"] else datetime.now(timezone.utc).strftime("%Y-%m")
+    meses_display = _meses_contiguos(ref_anio_mes, MESES_SERIE_DISPLAY)
+
+    def serie_pts_display(material_id: str, plant: str) -> list[tuple[str, float]]:
+        ventas_por_mes = dict(serie.get((material_id, plant), []))
+        return [(mes, ventas_por_mes.get(mes, 0.0)) for mes in meses_display]
+
     # Info por (material,plant) para resolver transferencias intra-corredor (RN-02).
     info_por_linea = {}
     for r in candidatos:
@@ -553,12 +587,11 @@ def generar_sugeridos(
             partes_explicacion.append("La demanda muestra tendencia a la baja en el último mes.")
         explicacion = " ".join(partes_explicacion)
 
-        saldos_fin_mes = _saldos_fin_mes(
-            kardex_por_linea.get(key, []), [anio_mes for anio_mes, _ in serie_pts]
-        )
+        serie_pts_disp = serie_pts_display(*key)
+        saldos_fin_mes = _saldos_fin_mes(kardex_por_linea.get(key, []), meses_display)
 
         datos_decision = build_datos_decision(
-            serie_pts=serie_pts,
+            serie_pts=serie_pts_disp,
             demanda_promedio_3m=dem,
             meses_con_venta=meses_con_venta,
             meses_historia=MESES_HISTORIA,

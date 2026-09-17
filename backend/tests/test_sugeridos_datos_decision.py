@@ -242,7 +242,22 @@ class GenerarSugeridosDatosDecisionIntegrationTests(unittest.TestCase):
     def test_mat_normal_datos_decision_completos(self):
         it = self._items_by_material()["MAT-NORMAL"]
         dd = it["datos_decision"]
-        self.assertEqual(len(dd["serie_demanda"]), 3)
+        # T27 (waykee 291745): serie_demanda ahora son 5 meses calendario
+        # CONTIGUOS (min. requerido por el popup de decisión), no solo los 3
+        # meses con venta -- ver MESES_SERIE_DISPLAY / _meses_contiguos.
+        self.assertEqual(len(dd["serie_demanda"]), 5)
+        # Contiguos sin huecos, ancla en el MAX(anio_mes) real (2026-08) y
+        # rellena con 0 los meses sin venta (2026-04 y 2026-05 aquí).
+        self.assertEqual(
+            [p["anio_mes"] for p in dd["serie_demanda"]],
+            ["2026-04", "2026-05", "2026-06", "2026-07", "2026-08"],
+        )
+        por_mes = {p["anio_mes"]: p["cajas"] for p in dd["serie_demanda"]}
+        self.assertEqual(por_mes["2026-04"], 0)
+        self.assertEqual(por_mes["2026-05"], 0)
+        self.assertEqual(por_mes["2026-06"], 40)
+        self.assertEqual(por_mes["2026-07"], 40)
+        self.assertEqual(por_mes["2026-08"], 40)
         self.assertAlmostEqual(dd["demanda_promedio_3m"], 40.0, places=1)
         self.assertEqual(dd["inventario"]["disponible"], 100)
         self.assertEqual(dd["inventario"]["comprometido"], 50)

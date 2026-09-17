@@ -306,7 +306,20 @@ function DrillDown({ label, cantidad, cargar, columnas }) {
   );
 }
 
-function ExplainPanel({ row, onClose }) {
+/** T27 (waykee 291745): popup grande de decisión -- sustituye al panel lateral
+ * sticky de 400px (`ExplainPanel`). Se abre al hacer click en cualquier parte
+ * del renglón, en las 3 pestañas (Propuestos/Aprobados/Rechazados). Mismo
+ * contenido completo sin importar el estado; en Aprobados/Rechazados se agrega
+ * estado + quién/cuándo decidió en el encabezado. */
+function DecisionModal({ row, onClose }) {
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   if (!row) return null;
   const dd = row.datos_decision;
   const tieneDatosDecision = !!(dd && Object.keys(dd).length > 0);
@@ -314,14 +327,34 @@ function ExplainPanel({ row, onClose }) {
   const prov = dd?.proveedor || {};
   const red = dd?.redondeo || {};
   const trans = dd?.transferencia || { cantidad_transferir: row.cantidad_transferir, detalle_transferencias: row.detalle_transferencias };
+  const esDecidido = row.estado && row.estado !== "propuesto";
 
   return (
-    <aside className="card card--elevated" style={{ position: "sticky", top: 84, alignSelf: "flex-start", width: 400, flexShrink: 0 }}>
-      <div className="ai-explain">
-        <div className="ai-explain__head">
-          ✨ Por qué se sugiere esta cantidad
-          <span className={`layer layer--${(row.capa || "c1").toLowerCase()}`}>{row.capa}</span>
+    <>
+      <div className="scrim" onClick={onClose} />
+      <div className="modal modal--lg" role="dialog" aria-modal="true" aria-label="Detalle de la decisión sugerida">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+          <div>
+            <h3 className="h3 modal__title" style={{ margin: 0 }}>
+              ✨ Por qué se sugiere esta cantidad{" "}
+              <span className={`layer layer--${(row.capa || "c1").toLowerCase()}`}>{row.capa}</span>
+            </h3>
+            <p className="footnote text-secondary" style={{ marginTop: 6 }}>
+              SKU {row.material_id} · {row.descripcion} · Sucursal {row.plant} · ABC {row.abc}
+            </p>
+            {esDecidido && (
+              <p className="footnote" style={{ marginTop: 4 }}>
+                <span className={`badge ${row.estado === "aprobado" ? "badge--success" : "badge--danger"}`}>
+                  {row.estado === "aprobado" ? "Aprobado" : "Rechazado"}
+                </span>
+                {row.aprobado_por && <> · por {row.aprobado_por}</>}
+                {row.actualizado && <> · {fmtDate(row.actualizado)}</>}
+              </p>
+            )}
+          </div>
+          <button type="button" className="app-icon-btn" onClick={onClose} aria-label="Cerrar">✕</button>
         </div>
+
         <p className="body" style={{ marginTop: 12, marginBottom: 0 }}>{row.explicacion}</p>
 
         {inv.sobrevendido && (
@@ -338,11 +371,11 @@ function ExplainPanel({ row, onClose }) {
             </div>
 
             <div style={{ marginTop: 14 }}>
-              <div className="footnote text-secondary" style={{ marginBottom: 4 }}>Inventario (cajas)</div>
+              <div className="footnote text-secondary" style={{ marginBottom: 4 }}>Saldo de inventario actual (cajas)</div>
               <div className="footnote" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
                 <span>Disponible: <strong className="tnum">{fmtInt.format(inv.disponible || 0)}</strong></span>
                 <span>
-                  Pedidos por cumplir:{" "}
+                  Backorder de compra (en tránsito):{" "}
                   <DrillDown
                     label="Pedidos por cumplir"
                     cantidad={inv.transito || 0}
@@ -351,7 +384,7 @@ function ExplainPanel({ row, onClose }) {
                   />
                 </span>
                 <span>
-                  Comprometido:{" "}
+                  Backorder de venta (comprometido):{" "}
                   <DrillDown
                     label="Backorder"
                     cantidad={inv.comprometido || 0}
@@ -359,7 +392,19 @@ function ExplainPanel({ row, onClose }) {
                     columnas={BACKORDER_COLUMNAS}
                   />
                 </span>
-                <span>Neto: <strong className="tnum">{fmtInt.format(inv.disponible_neto || 0)}</strong></span>
+                <span>
+                  Neto: <strong className="tnum">{fmtInt.format(inv.disponible_neto || 0)}</strong>
+                  {inv.sobrevendido && " ⚠"}
+                </span>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 14 }}>
+              <div className="footnote text-secondary" style={{ marginBottom: 4 }}>Cobertura según pronóstico vs objetivo ABC</div>
+              <div className="footnote">
+                Meses de inventario: <strong className="tnum">{dd.cobertura_actual?.toFixed?.(1) ?? "—"}</strong> vs objetivo{" "}
+                <strong className="tnum">{dd.meses_objetivo ?? row.cobertura_objetivo ?? "—"}</strong> meses → faltante{" "}
+                <strong className="tnum">{fmtInt.format(dd.faltante_bruto || 0)}</strong> cajas
               </div>
             </div>
 
@@ -398,14 +443,15 @@ function ExplainPanel({ row, onClose }) {
             </div>
           )
         )}
+
+        <div className="footnote text-tertiary" style={{ marginTop: 12 }}>
+          SKU {row.material_id} · Sucursal {row.plant} · Confianza IA {row.confianza}%
+        </div>
+        <div className="modal__actions">
+          <button className="btn btn--ghost" onClick={onClose}>Cerrar</button>
+        </div>
       </div>
-      <div className="footnote text-tertiary" style={{ marginTop: 12 }}>
-        SKU {row.material_id} · Sucursal {row.plant} · Confianza IA {row.confianza}%
-      </div>
-      <button className="btn btn--ghost btn--sm" style={{ marginTop: 12, width: "100%" }} onClick={onClose}>
-        Cerrar
-      </button>
-    </aside>
+    </>
   );
 }
 
@@ -789,8 +835,15 @@ export default function Sugeridos() {
                   const sem = coberturaSem(r);
                   const trend = tendenciaBadge(r.tendencia);
                   return (
-                    <tr key={r.id}>
-                      <td><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleRow(r.id)} /></td>
+                    <tr
+                      key={r.id}
+                      style={{ cursor: "pointer" }}
+                      onClick={() => setExplainRow(r)}
+                      title="Ver detalle de la decisión"
+                    >
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleRow(r.id)} />
+                      </td>
                       <td className="tnum">{r.material_id}</td>
                       <td>
                         {r.descripcion}
@@ -810,7 +863,7 @@ export default function Sugeridos() {
                             className="btn btn--ghost btn--sm"
                             style={{ marginLeft: 6, height: 22, padding: "0 6px" }}
                             title="Editar cantidad (requiere justificación)"
-                            onClick={() => setEditRow(r)}
+                            onClick={(e) => { e.stopPropagation(); setEditRow(r); }}
                           >
                             ✎
                           </button>
@@ -828,7 +881,9 @@ export default function Sugeridos() {
                       <td><span className={`badge ${trend.cls}`}>{trend.icon} {trend.label}</span></td>
                       <td><span className={`layer layer--${(r.capa || "c1").toLowerCase()}`}>{r.capa}</span></td>
                       <td>
-                        <button className="btn btn--ghost btn--sm" onClick={() => setExplainRow(r)}>Ver explicación</button>
+                        <button className="btn btn--ghost btn--sm" onClick={(e) => { e.stopPropagation(); setExplainRow(r); }}>
+                          Ver detalle
+                        </button>
                       </td>
                     </tr>
                   );
@@ -849,9 +904,9 @@ export default function Sugeridos() {
           </div>
         </div>
 
-        {explainRow && <ExplainPanel row={explainRow} onClose={() => setExplainRow(null)} />}
       </div>
 
+      {explainRow && <DecisionModal row={explainRow} onClose={() => setExplainRow(null)} />}
       {editRow && <EditModal row={editRow} onClose={() => setEditRow(null)} onSaved={onEditSaved} />}
       {approve && <ApproveModal rows={approve.rows} accion={approve.accion} onClose={() => setApprove(null)} onDone={onDecided} />}
     </div>
