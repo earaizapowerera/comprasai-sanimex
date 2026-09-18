@@ -323,6 +323,7 @@ def build_datos_decision(
     inventario_fin_mes: Optional[dict[str, Optional[float]]] = None,
     kardex_disponible: bool = False,
     dias_sin_inventario: Optional[dict[str, dict]] = None,
+    categoria: Optional[dict] = None,
 ) -> dict:
     """T28 (waykee 291765): motor de 3 promedios -- reemplaza al promedio móvil
     corto (T19/T25) como base de cobertura/faltante/compra sugerida, en
@@ -398,6 +399,10 @@ def build_datos_decision(
             "sobrevendido": disponible_neto < 0,
         },
         "cobertura_actual": round(cobertura_actual, 2) if cobertura_actual is not None else None,
+        # T29 (punto 5): categoría vigente al mes de referencia -- {valor, anio_mes}
+        # (anio_mes puede no ser el de referencia si se usó fallback, ver
+        # _categoria_para_linea) o None si el material no tiene categoría cargada.
+        "categoria": categoria,
         "meses_objetivo": {
             "valor": meses_objetivo,
             # T29 (punto 1): 'excepcion' (material+sucursal) | 'default'
@@ -679,6 +684,47 @@ def _fusionar_dias_sin_inventario_tabla(
     return fusion
 
 
+def _cargar_categorias_tabla(
+    db: sqlite3.Connection, material_ids: list[str], placeholders: str
+) -> dict[str, list[tuple[str, str]]]:
+    """T29 (punto 5, waykee 291788): categoría mensual por material -- hoy la
+    siembra el loader del Excel muestra-compras.xlsb (ver
+    data/load_categorias_excel.py), mañana SAP/HANA (v7). Devuelve
+    material_id -> lista de (anio_mes, categoria) ordenada ascendente."""
+    if not material_ids:
+        return {}
+    rows = db.execute(
+        f"""SELECT material_id, anio_mes, categoria FROM categorias_mensuales
+            WHERE material_id IN ({placeholders})
+            ORDER BY material_id, anio_mes""",
+        material_ids,
+    ).fetchall()
+    out: dict[str, list[tuple[str, str]]] = {}
+    for r in rows:
+        out.setdefault(r["material_id"], []).append((r["anio_mes"], r["categoria"]))
+    return out
+
+
+def _categoria_para_linea(
+    tabla_categorias: dict[str, list[tuple[str, str]]], material_id: str, mes_ref: str
+) -> Optional[dict]:
+    """Categoría vigente al mes de referencia: exacta si existe, si no la más
+    reciente <= mes_ref, si no -- fallback pedido por el PM (mensaje puente
+    290066->291788) -- la más reciente disponible aunque sea posterior."""
+    puntos = tabla_categorias.get(material_id)
+    if not puntos:
+        return None
+    exacta = next((c for m, c in puntos if m == mes_ref), None)
+    if exacta:
+        return {"valor": exacta, "anio_mes": mes_ref}
+    anteriores = [(m, c) for m, c in puntos if m <= mes_ref]
+    if anteriores:
+        m, c = max(anteriores, key=lambda par: par[0])
+        return {"valor": c, "anio_mes": m}
+    m, c = max(puntos, key=lambda par: par[0])
+    return {"valor": c, "anio_mes": m}
+
+
 def _a_m2(valor_cajas: Optional[float], m2_por_caja: Optional[float]) -> Optional[float]:
     """T29 (punto 2): equivalente en m2 de un valor en cajas, mismo criterio
     ya usado por build_datos_decision para compra_sugerida_m2/cantidad_final_m2
@@ -900,6 +946,9 @@ def generar_sugeridos(
     # T29 (punto 3, v7): tabla oficial dias_sin_inventario_mensual -- si
     # existe, manda sobre el cálculo local mes a mes (ver _fusionar_...).
     tabla_dsi = _cargar_dias_sin_inventario_tabla(db, material_ids, placeholders)
+
+    # T29 (punto 5): categoría mensual por material (Excel hoy, SAP/HANA mañana).
+    tabla_categorias = _cargar_categorias_tabla(db, material_ids, placeholders)
 
     # T28 (waykee 291765): estrategia de Promedio 3 resuelta UNA vez por
     # request (no por línea) -- ver mensaje puente waykee 290066->291765.
@@ -1154,6 +1203,8 @@ def generar_sugeridos(
                 dias_sin_inventario, tabla_dsi, r["material_id"], r["plant"]
             )
 
+        categoria_info = _categoria_para_linea(tabla_categorias, r["material_id"], mes_ref)
+
         datos_decision = build_datos_decision(
             historia_meses=meses_display,
             historia_consumo=info["promedios"]["consumo"],
@@ -1187,6 +1238,7 @@ def generar_sugeridos(
             cantidad_comprar_bruta=cantidad_comprar_bruta,
             cantidad_final=cantidad_final,
             n_pallets=n_pallets,
+            categoria=categoria_info,
         )
 
         items.append({

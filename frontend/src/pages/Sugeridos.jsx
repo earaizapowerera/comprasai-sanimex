@@ -277,6 +277,12 @@ function DecisionModal({ row, onClose, onDecidir }) {
             </h3>
             <p className="footnote text-secondary" style={{ marginTop: 6 }}>
               SKU {row.material_id} · {row.descripcion} · Sucursal {row.plant} · ABC {row.abc}
+              {dd?.categoria && (
+                <>
+                  {" "}· Categoría <span className="badge badge--neutral">{dd.categoria.valor}</span>
+                  {dd.categoria.anio_mes && ` (${dd.categoria.anio_mes})`}
+                </>
+              )}
             </p>
             {esDecidido && (
               <p className="footnote" style={{ marginTop: 4 }}>
@@ -906,7 +912,12 @@ export default function Sugeridos() {
                         {r.descripcion}
                         <div className="caption text-tertiary">{r.plant} · {r.proveedor || "s/proveedor"}</div>
                       </td>
-                      <td><span className={`abc abc--${(r.abc || "c").toLowerCase()}`}>{r.abc}</span></td>
+                      <td>
+                        <span className={`abc abc--${(r.abc || "c").toLowerCase()}`}>{r.abc}</span>
+                        {r.datos_decision?.categoria?.valor && (
+                          <div className="caption text-tertiary">{r.datos_decision.categoria.valor}</div>
+                        )}
+                      </td>
                       <td>
                         <span className={`sem ${sem.cls}`}>
                           <span className="sem__dot" />
