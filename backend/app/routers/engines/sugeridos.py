@@ -307,6 +307,7 @@ def build_datos_decision(
     disponible_neto: float,
     cobertura_actual: Optional[float],
     meses_objetivo: float,
+    meses_objetivo_fuente: str,
     compra_sugerida: float,
     proveedor: Optional[str],
     moq_cajas: int,
@@ -368,7 +369,14 @@ def build_datos_decision(
             "sobrevendido": disponible_neto < 0,
         },
         "cobertura_actual": round(cobertura_actual, 2) if cobertura_actual is not None else None,
-        "meses_objetivo": meses_objetivo,
+        "meses_objetivo": {
+            "valor": meses_objetivo,
+            # T29 (punto 1): 'excepcion' (material+sucursal) | 'default'
+            # (material) | 'fallback' (sin fila en ninguna tabla, usa
+            # DEFAULT_OBJETIVO_MESES) -- el popup muestra badge "Excepción"
+            # solo cuando este valor es 'excepcion'.
+            "fuente": meses_objetivo_fuente,
+        },
         "proveedor": {
             "nombre": proveedor,
             "moq_cajas": moq_cajas,
@@ -435,6 +443,48 @@ def _ensure_tables(db: sqlite3.Connection) -> None:
     cols = {row["name"] for row in db.execute("PRAGMA table_info(sugeridos_generados)")}
     if "datos_decision_json" not in cols:
         db.execute("ALTER TABLE sugeridos_generados ADD COLUMN datos_decision_json TEXT")
+
+    # T29 (waykee 291788, punto 1): meses objetivo a dos niveles -- DEFAULT
+    # por material, EXCEPCION por material+sucursal. La EXCEPCIÓN manda
+    # SIEMPRE que exista (precisión explícita del PM); el default solo aplica
+    # en su ausencia. `coberturas_objetivo` (T3, 1 fila por material) queda
+    # como fuente de siembra histórica -- otros módulos (kpis/inventarios/
+    # materiales/balanceos) la siguen usando tal cual, fuera de alcance de
+    # este ticket -- pero sugeridos.py resuelve el objetivo desde estas dos
+    # tablas nuevas de aquí en adelante.
+    db.execute(
+        """CREATE TABLE IF NOT EXISTS meses_objetivo_default (
+            material_id TEXT PRIMARY KEY,
+            meses       REAL NOT NULL
+        )"""
+    )
+    db.execute(
+        """CREATE TABLE IF NOT EXISTS meses_objetivo_excepcion (
+            material_id TEXT NOT NULL,
+            plant       TEXT NOT NULL,
+            meses       REAL NOT NULL,
+            PRIMARY KEY (material_id, plant)
+        )"""
+    )
+    if _tabla_existe(db, "coberturas_objetivo"):
+        # INSERT OR IGNORE: solo siembra materiales que AÚN no tienen default
+        # propio (p.ej. editado a mano vía PUT /objetivo) -- no pisa ediciones.
+        db.execute(
+            """INSERT OR IGNORE INTO meses_objetivo_default (material_id, meses)
+               SELECT material_id, meses_objetivo FROM coberturas_objetivo"""
+        )
+
+    # T29 (punto 5): categoría del material, puede cambiar mes a mes -- fuente
+    # hoy es el Excel muestra-compras.xlsb (hoja ARAGON, ver script de carga),
+    # mañana SAP (v7, Data Expert). anio_mes formato 'YYYY-MM'.
+    db.execute(
+        """CREATE TABLE IF NOT EXISTS categorias_mensuales (
+            material_id TEXT NOT NULL,
+            anio_mes    TEXT NOT NULL,
+            categoria   TEXT NOT NULL,
+            PRIMARY KEY (material_id, anio_mes)
+        )"""
+    )
     db.commit()
 
 
@@ -691,18 +741,30 @@ def generar_sugeridos(
         params.append(abc)
     where_sql = " AND ".join(where)
 
+    # T29 (waykee 291788, punto 1): la EXCEPCIÓN (material+sucursal) manda
+    # SIEMPRE que exista; el DEFAULT (material) solo aplica en su ausencia.
+    # CASE explícito para `meses_objetivo_fuente` en vez de inferirlo después
+    # comparando floats (dos meses_objetivo podrían coincidir por casualidad
+    # con distinta fuente).
     candidatos = db.execute(
         f"""SELECT i.material_id, i.plant, i.disponible, i.transito, i.comprometido,
                    m.descripcion, m.abc, m.m2_por_caja, m.precio_venta, m.costo,
                    s.corredor, s.organizacion, s.canal,
-                   COALESCE(c.meses_objetivo, {DEFAULT_OBJETIVO_MESES}) AS meses_objetivo,
+                   COALESCE(mox.meses, mod.meses, {DEFAULT_OBJETIVO_MESES}) AS meses_objetivo,
+                   CASE
+                       WHEN mox.meses IS NOT NULL THEN 'excepcion'
+                       WHEN mod.meses IS NOT NULL THEN 'default'
+                       ELSE 'fallback'
+                   END AS meses_objetivo_fuente,
                    COALESCE(pr.moq_cajas, {DEFAULT_MOQ}) AS moq_cajas,
                    COALESCE(pr.cajas_por_pallet, {DEFAULT_PALLET}) AS cajas_por_pallet,
                    pr.proveedor, COALESCE(pr.lead_time_dias, 15) AS lead_time_dias
             FROM inventarios i
             JOIN materiales m ON m.material_id = i.material_id
             JOIN sucursales s ON s.plant = i.plant
-            LEFT JOIN coberturas_objetivo c ON c.material_id = i.material_id
+            LEFT JOIN meses_objetivo_excepcion mox
+                   ON mox.material_id = i.material_id AND mox.plant = i.plant
+            LEFT JOIN meses_objetivo_default mod ON mod.material_id = i.material_id
             LEFT JOIN proveedores pr ON pr.material_id = i.material_id
             WHERE {where_sql}
             ORDER BY i.material_id, i.plant""",
@@ -914,6 +976,7 @@ def generar_sugeridos(
         info = info_por_linea[key]
         cobertura = info["cobertura"]
         objetivo = r["meses_objetivo"]
+        objetivo_fuente = r["meses_objetivo_fuente"]
         dem = info["demanda_mensual"]
 
         if cobertura is None:
@@ -1014,6 +1077,7 @@ def generar_sugeridos(
             disponible_neto=info["disponible_neto"],
             cobertura_actual=cobertura,
             meses_objetivo=objetivo,
+            meses_objetivo_fuente=objetivo_fuente,
             compra_sugerida=compra_sugerida,
             proveedor=r["proveedor"],
             moq_cajas=int(r["moq_cajas"]),
@@ -1205,6 +1269,52 @@ def editar_sugerido(
     )
     db.commit()
     return {"ok": True, "id": sugerido_id, "cantidad_final": cantidad_final, "costo_estimado": costo_estimado}
+
+
+@router.put("/objetivo")
+def editar_meses_objetivo(
+    material_id: str = Body(..., embed=True),
+    meses: float = Body(..., embed=True, gt=0),
+    plant: Optional[str] = Body(None, embed=True),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """T29 (waykee 291788, punto 1): fija el objetivo de meses de cobertura.
+    Sin `plant` -> edita el DEFAULT del material (aplica a toda sucursal sin
+    excepción propia). Con `plant` -> crea/actualiza la EXCEPCIÓN de esa
+    sucursal, que manda sobre el default la próxima vez que se genere."""
+    _ensure_tables(db)
+    if plant:
+        db.execute(
+            """INSERT INTO meses_objetivo_excepcion (material_id, plant, meses)
+               VALUES (?, ?, ?)
+               ON CONFLICT(material_id, plant) DO UPDATE SET meses = excluded.meses""",
+            [material_id, plant, meses],
+        )
+    else:
+        db.execute(
+            """INSERT INTO meses_objetivo_default (material_id, meses) VALUES (?, ?)
+               ON CONFLICT(material_id) DO UPDATE SET meses = excluded.meses""",
+            [material_id, meses],
+        )
+    db.commit()
+    return {"ok": True, "material_id": material_id, "plant": plant, "meses": meses,
+            "nivel": "excepcion" if plant else "default"}
+
+
+@router.delete("/objetivo/excepcion")
+def borrar_excepcion_meses_objetivo(
+    material_id: str = Query(...),
+    plant: str = Query(...),
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Quita la excepción de sucursal -- vuelve a aplicar el default del material."""
+    _ensure_tables(db)
+    db.execute(
+        "DELETE FROM meses_objetivo_excepcion WHERE material_id = ? AND plant = ?",
+        [material_id, plant],
+    )
+    db.commit()
+    return {"ok": True, "material_id": material_id, "plant": plant}
 
 
 @router.post("/decidir")

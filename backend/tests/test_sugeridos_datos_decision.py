@@ -31,10 +31,12 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.routers.engines.sugeridos import (  # noqa: E402
+    DEFAULT_OBJETIVO_MESES,
     RATIO_M2_POR_PIEZA_FALLBACK,
     _a_m2,
     _dias_calendario_mes,
     backorder_detalle,
+    borrar_excepcion_meses_objetivo,
     build_datos_decision,
     calc_compra_sugerida,
     calc_consumo_mes_referencia_corregido,
@@ -49,6 +51,7 @@ from app.routers.engines.sugeridos import (  # noqa: E402
     calc_promedio_ultimos_n,
     calc_redondeo_pallets_completos,
     calc_valor_mes_ajustado,
+    editar_meses_objetivo,
     generar_sugeridos,
     lista_sugeridos,
     pedidos_detalle,
@@ -242,6 +245,7 @@ class BuildDatosDecisionTests(unittest.TestCase):
             disponible_neto=50.0,
             cobertura_actual=1.25,
             meses_objetivo=2.0,
+            meses_objetivo_fuente="default",
             compra_sugerida=30.0,
             proveedor="Proveedor Uno",
             moq_cajas=20,
@@ -450,6 +454,89 @@ class GenerarSugeridosDatosDecisionIntegrationTests(unittest.TestCase):
         self.assertTrue(dd["inventario"]["sobrevendido"])
         self.assertLess(dd["inventario"]["disponible_neto"], 0)
         self.assertAlmostEqual(dd["inventario"]["disponible_neto"], -40.0, places=1)
+
+    def test_meses_objetivo_default_desde_coberturas_objetivo(self):
+        # T29 (waykee 291788, punto 1): sin excepción de sucursal, el objetivo
+        # se resuelve del DEFAULT por material (sembrado desde coberturas_objetivo).
+        dd = self._items_by_material()["MAT-NORMAL"]["datos_decision"]
+        self.assertEqual(dd["meses_objetivo"]["valor"], 2.0)
+        self.assertEqual(dd["meses_objetivo"]["fuente"], "default")
+
+    def test_meses_objetivo_excepcion_siempre_manda_sobre_default(self):
+        # Primera pasada: siembra meses_objetivo_default (2.0) desde coberturas_objetivo.
+        self._generar()
+        self.conn.execute(
+            "INSERT INTO meses_objetivo_excepcion (material_id, plant, meses) "
+            "VALUES ('MAT-NORMAL', 'P1', 5.0)"
+        )
+        self.conn.commit()
+        dd = self._items_by_material()["MAT-NORMAL"]["datos_decision"]
+        self.assertEqual(dd["meses_objetivo"]["valor"], 5.0)
+        self.assertEqual(dd["meses_objetivo"]["fuente"], "excepcion")
+
+    def test_meses_objetivo_fallback_sin_default_ni_excepcion(self):
+        # Sin fila en coberturas_objetivo (y por lo tanto sin default sembrado)
+        # ni excepción -> cae al fallback global DEFAULT_OBJETIVO_MESES.
+        self.conn.execute("DELETE FROM coberturas_objetivo WHERE material_id = 'MAT-NORMAL'")
+        self.conn.commit()
+        dd = self._items_by_material()["MAT-NORMAL"]["datos_decision"]
+        self.assertEqual(dd["meses_objetivo"]["fuente"], "fallback")
+        self.assertEqual(dd["meses_objetivo"]["valor"], DEFAULT_OBJETIVO_MESES)
+
+
+class ObjetivoEndpointsTests(unittest.TestCase):
+    """PUT /objetivo (default/excepción) y DELETE /objetivo/excepcion --
+    edición mínima del objetivo de meses de cobertura (T29, punto 1)."""
+
+    def setUp(self):
+        self.conn = _build_memory_db()
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _generar(self):
+        return generar_sugeridos(
+            familia=None, proveedor=None, corredor=None, plant=None, abc=None,
+            solo_criticos=False, page=1, page_size=50, db=self.conn,
+        )
+
+    def _items_by_material(self):
+        return {it["material_id"]: it for it in self._generar()["items"]}
+
+    def test_editar_default_sin_plant_afecta_todas_las_sucursales(self):
+        resp = editar_meses_objetivo(
+            material_id="MAT-NORMAL", meses=3.5, plant=None, db=self.conn
+        )
+        self.assertEqual(resp["nivel"], "default")
+        dd = self._items_by_material()["MAT-NORMAL"]["datos_decision"]
+        self.assertEqual(dd["meses_objetivo"]["valor"], 3.5)
+        self.assertEqual(dd["meses_objetivo"]["fuente"], "default")
+
+    def test_editar_default_es_upsert(self):
+        editar_meses_objetivo(material_id="MAT-NORMAL", meses=3.0, plant=None, db=self.conn)
+        editar_meses_objetivo(material_id="MAT-NORMAL", meses=4.0, plant=None, db=self.conn)
+        row = self.conn.execute(
+            "SELECT meses FROM meses_objetivo_default WHERE material_id = 'MAT-NORMAL'"
+        ).fetchone()
+        self.assertEqual(row["meses"], 4.0)
+
+    def test_editar_excepcion_con_plant_manda_sobre_default(self):
+        editar_meses_objetivo(material_id="MAT-NORMAL", meses=2.0, plant=None, db=self.conn)
+        resp = editar_meses_objetivo(
+            material_id="MAT-NORMAL", meses=6.0, plant="P1", db=self.conn
+        )
+        self.assertEqual(resp["nivel"], "excepcion")
+        dd = self._items_by_material()["MAT-NORMAL"]["datos_decision"]
+        self.assertEqual(dd["meses_objetivo"]["valor"], 6.0)
+        self.assertEqual(dd["meses_objetivo"]["fuente"], "excepcion")
+
+    def test_borrar_excepcion_revierte_al_default(self):
+        editar_meses_objetivo(material_id="MAT-NORMAL", meses=2.0, plant=None, db=self.conn)
+        editar_meses_objetivo(material_id="MAT-NORMAL", meses=6.0, plant="P1", db=self.conn)
+        borrar_excepcion_meses_objetivo(material_id="MAT-NORMAL", plant="P1", db=self.conn)
+        dd = self._items_by_material()["MAT-NORMAL"]["datos_decision"]
+        self.assertEqual(dd["meses_objetivo"]["valor"], 2.0)
+        self.assertEqual(dd["meses_objetivo"]["fuente"], "default")
 
 
 class ListaSugeridosDatosDecisionIntegrationTests(unittest.TestCase):
