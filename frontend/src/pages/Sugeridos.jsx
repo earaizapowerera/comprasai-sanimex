@@ -53,6 +53,29 @@ function coberturaSem(row) {
   return { cls: "sem--ok", label: "Cerca del objetivo" };
 }
 
+const fmtM2 = new Intl.NumberFormat("es-MX", { maximumFractionDigits: 1 });
+
+function m2Suffix(m2) {
+  return m2 == null ? "" : ` (${fmtM2.format(m2)} m²)`;
+}
+
+// T29 (waykee 291788, punto 3): semáforo de días sin inventario -- rojo si
+// hubo quiebre relevante en el mes, ámbar si fue parcial/leve, gris si no
+// hay dato (sin kardex_diario ni tabla v7 para ese mes).
+function diasSinInventarioBadge(punto) {
+  if (!punto || punto.dias_sin_inventario == null) {
+    return { cls: "", texto: "—", titulo: "Sin dato (sin kardex para este mes)" };
+  }
+  const dias = punto.dias_sin_inventario;
+  const titulo = punto.cobertura_parcial
+    ? `${dias} día${dias === 1 ? "" : "s"} sin inventario -- cobertura parcial del mes (el kardex no cubre todo el mes)`
+    : `${dias} día${dias === 1 ? "" : "s"} sin inventario de ${punto.dias_mes ?? "—"} del mes`;
+  let cls = "badge--success";
+  if (dias >= 10) cls = "badge--danger";
+  else if (dias > 0) cls = "badge--warning";
+  return { cls, texto: String(dias), titulo };
+}
+
 function tendenciaBadge(t) {
   if (t === "alza") return { cls: "badge--accent", icon: "▲", label: "Alza" };
   if (t === "baja") return { cls: "badge--warning", icon: "▼", label: "Baja" };
@@ -272,7 +295,8 @@ function DecisionModal({ row, onClose, onDecidir }) {
 
         {inv.sobrevendido && (
           <div className="footnote" style={{ marginTop: 10, color: "var(--danger-text)", fontWeight: "var(--fw-semibold)" }}>
-            ⚠ Sobrevendido {fmtInt.format(Math.abs(inv.disponible_neto))} cajas (comprometido excede stock)
+            El backorder traslado ({fmtInt.format(inv.comprometido || 0)} caj) excede el inventario + tránsito disponible por{" "}
+            {fmtInt.format(Math.abs(inv.disponible_neto))} cajas.
           </div>
         )}
 
@@ -282,7 +306,9 @@ function DecisionModal({ row, onClose, onDecidir }) {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
                 <div>
                   <div className="footnote text-secondary">Inventario actual</div>
-                  <strong className="tnum">{fmtInt.format(inv.disponible || 0)} caj</strong>
+                  <strong className="tnum">
+                    {fmtInt.format(inv.disponible || 0)} caj{m2Suffix(inv.disponible_m2)}
+                  </strong>
                 </div>
                 <div>
                   <div className="footnote text-secondary">Backorder compra (tránsito)</div>
@@ -292,19 +318,23 @@ function DecisionModal({ row, onClose, onDecidir }) {
                     cargar={() => api.sugeridos.pedidosDetalle(row.material_id, row.plant)}
                     columnas={PEDIDOS_COLUMNAS}
                   />
+                  {inv.transito_m2 != null && <div className="caption text-tertiary">{fmtM2.format(inv.transito_m2)} m²</div>}
                 </div>
                 <div>
-                  <div className="footnote text-secondary">Backorder venta (comprometido)</div>
+                  <div className="footnote text-secondary">Backorder traslado (por salir)</div>
                   <DrillDown
                     label="Backorder"
                     cantidad={inv.comprometido || 0}
                     cargar={() => api.sugeridos.backorderDetalle(row.material_id, row.plant)}
                     columnas={BACKORDER_COLUMNAS}
                   />
+                  {inv.comprometido_m2 != null && <div className="caption text-tertiary">{fmtM2.format(inv.comprometido_m2)} m²</div>}
                 </div>
                 <div>
                   <div className="footnote text-secondary">PROMEDIO general</div>
-                  <strong className="tnum">{fmtInt.format(dd.promedio_general || 0)} caj/mes</strong>
+                  <strong className="tnum">
+                    {fmtInt.format(dd.promedio_general || 0)} caj/mes{m2Suffix(dd.promedio_general_m2)}
+                  </strong>
                 </div>
                 <div>
                   <div className="footnote text-secondary">Meses actual</div>
@@ -312,7 +342,12 @@ function DecisionModal({ row, onClose, onDecidir }) {
                 </div>
                 <div>
                   <div className="footnote text-secondary">Meses objetivo</div>
-                  <strong className="tnum">{dd.meses_objetivo ?? row.cobertura_objetivo ?? "—"}</strong>
+                  <strong className="tnum">{dd.meses_objetivo?.valor ?? row.cobertura_objetivo ?? "—"}</strong>
+                  {dd.meses_objetivo?.fuente === "excepcion" && (
+                    <span className="badge badge--accent" style={{ marginLeft: 6, height: "auto", padding: "1px 6px" }}>
+                      Excepción
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -330,10 +365,30 @@ function DecisionModal({ row, onClose, onDecidir }) {
                 </thead>
                 <tbody>
                   <tr>
-                    <td className="footnote text-secondary">Consumo</td>
+                    <td className="footnote text-secondary">Consumo (caj)</td>
                     {hist.consumo.map((v, i) => (
                       <td key={hist.meses[i]} className="num tnum">{fmtInt.format(v)}</td>
                     ))}
+                  </tr>
+                  <tr>
+                    <td className="footnote text-secondary">Consumo (m²)</td>
+                    {(hist.consumo_m2 || []).map((v, i) => (
+                      <td key={hist.meses[i]} className="num tnum text-tertiary">{v == null ? "—" : fmtM2.format(v)}</td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <td className="footnote text-secondary" title="Días del mes con saldo de inventario en cero (fuente: kardex diario)">
+                      Días sin inventario
+                    </td>
+                    {hist.meses.map((m, i) => {
+                      const punto = dd.inventario_fin_mes?.[i];
+                      const b = diasSinInventarioBadge(punto);
+                      return (
+                        <td key={m} className="num" title={b.titulo}>
+                          {b.cls ? <span className={`badge ${b.cls}`} style={{ height: "auto", padding: "1px 6px" }}>{b.texto}</span> : b.texto}
+                        </td>
+                      );
+                    })}
                   </tr>
                   <tr>
                     <td className="footnote text-secondary" title={`Promedio simple de los ${hist.meses.length} meses`}>
@@ -395,13 +450,16 @@ function DecisionModal({ row, onClose, onDecidir }) {
             <div style={{ marginTop: 14 }}>
               <div className="footnote text-secondary" style={{ marginBottom: 4 }}>Cálculo de compra</div>
               <div className="footnote">
-                Meses objetivo <strong className="tnum">{dd.meses_objetivo ?? "—"}</strong> × Promedio general{" "}
+                Meses objetivo <strong className="tnum">{dd.meses_objetivo?.valor ?? "—"}</strong> × Promedio general{" "}
                 <strong className="tnum">{fmtInt.format(dd.promedio_general || 0)}</strong> − Inventario{" "}
                 <strong className="tnum">{fmtInt.format(inv.disponible || 0)}</strong> − Tránsito{" "}
-                <strong className="tnum">{fmtInt.format(inv.transito || 0)}</strong> + Comprometido{" "}
-                <strong className="tnum">{fmtInt.format(inv.comprometido || 0)}</strong> = Compra sugerida{" "}
+                <strong className="tnum">{fmtInt.format(inv.transito || 0)}</strong> = Compra sugerida{" "}
                 <strong className="tnum">{fmtInt.format(compra.compra_sugerida_cajas || 0)}</strong> caj{" "}
                 ({fmtInt.format(compra.compra_sugerida_m2 || 0)} m²)
+              </div>
+              <div className="caption text-tertiary" style={{ marginTop: 2 }}>
+                El backorder traslado ({fmtInt.format(inv.comprometido || 0)} caj) no se suma a esta fórmula — no es
+                demanda pendiente, es mercancía por salir de la sucursal (ver detalle arriba).
               </div>
               {trans.cantidad_transferir > 0 && (
                 <div className="footnote" style={{ marginTop: 4, color: "var(--text-secondary)" }}>
