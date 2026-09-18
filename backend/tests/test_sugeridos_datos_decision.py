@@ -474,6 +474,19 @@ class GenerarSugeridosDatosDecisionIntegrationTests(unittest.TestCase):
         self.assertEqual(dd["meses_objetivo"]["valor"], 5.0)
         self.assertEqual(dd["meses_objetivo"]["fuente"], "excepcion")
 
+    def test_todo_se_expone_tambien_en_m2(self):
+        # T29 (waykee 291788, punto 2): cajas Y m2 conviven -- m2_por_caja=1.44.
+        dd = self._items_by_material()["MAT-NORMAL"]["datos_decision"]
+        self.assertAlmostEqual(dd["inventario"]["disponible_m2"], 144.0, places=1)
+        self.assertAlmostEqual(dd["inventario"]["transito_m2"], 0.0, places=1)
+        self.assertAlmostEqual(dd["inventario"]["comprometido_m2"], 72.0, places=1)
+        self.assertAlmostEqual(dd["inventario"]["disponible_neto_m2"], 72.0, places=1)
+        self.assertAlmostEqual(dd["promedio_general_m2"], 57.6, places=1)
+        self.assertAlmostEqual(dd["historia"]["promedio_1"]["valor_m2"], 57.6, places=1)
+        self.assertAlmostEqual(dd["historia"]["consumo_m2"][0], 57.6, places=1)
+        for punto in dd["inventario_fin_mes"]:
+            self.assertIn("saldo_m2", punto)
+
     def test_meses_objetivo_fallback_sin_default_ni_excepcion(self):
         # Sin fila en coberturas_objetivo (y por lo tanto sin default sembrado)
         # ni excepción -> cae al fallback global DEFAULT_OBJETIVO_MESES.

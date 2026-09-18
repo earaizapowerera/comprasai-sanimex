@@ -322,6 +322,7 @@ def build_datos_decision(
     n_pallets: int,
     inventario_fin_mes: Optional[dict[str, Optional[float]]] = None,
     kardex_disponible: bool = False,
+    dias_sin_inventario: Optional[dict[str, dict]] = None,
 ) -> dict:
     """T28 (waykee 291765): motor de 3 promedios -- reemplaza al promedio móvil
     corto (T19/T25) como base de cobertura/faltante/compra sugerida, en
@@ -338,34 +339,62 @@ def build_datos_decision(
     ya aterrizó -- dataset v6, aún pendiente --, `dia_pico_kardex` como
     fallback, o `sin_datos` cuando ninguna de las dos tablas existe)."""
     inventario_fin_mes = inventario_fin_mes or {}
+    dias_sin_inventario = dias_sin_inventario or {}
     corte_promedio_2 = max(0, len(historia_meses) - PROMEDIO2_MESES)
+
+    def _mes_fin(mes: str) -> dict:
+        # T29 (waykee 291788, punto 2 + punto 3): saldo de fin de mes en m2
+        # junto al de cajas, y "días sin inventario" del mismo mes (fuente
+        # única calc_dias_sin_inventario_por_mes) -- None cuando no aplica
+        # (sin kardex_diario poblado) en vez de 0, para no confundir "sin
+        # dato" con "sin días de quiebre".
+        dsi = dias_sin_inventario.get(mes)
+        return {
+            "anio_mes": mes,
+            "saldo": inventario_fin_mes.get(mes),
+            "saldo_m2": _a_m2(inventario_fin_mes.get(mes), m2_por_caja),
+            "dias_sin_inventario": dsi["dias"] if dsi else None,
+            "dias_con_dato": dsi["dias_con_dato"] if dsi else None,
+            "dias_mes": dsi["dias_mes"] if dsi else None,
+            "cobertura_parcial": dsi["cobertura_parcial"] if dsi else None,
+        }
+
     return {
         "historia": {
             "meses": historia_meses,
             "consumo": [round(v, 2) for v in historia_consumo],
-            "promedio_1": {"valor": round(promedio_1, 2)},
+            "consumo_m2": [_a_m2(v, m2_por_caja) for v in historia_consumo],
+            "promedio_1": {
+                "valor": round(promedio_1, 2),
+                "valor_m2": _a_m2(promedio_1, m2_por_caja),
+            },
             "promedio_2": {
                 "valor": round(promedio_2, 2),
+                "valor_m2": _a_m2(promedio_2, m2_por_caja),
                 "incluidos": [idx >= corte_promedio_2 for idx in range(len(historia_meses))],
             },
             "promedio_3": {
                 "valor": round(promedio_3, 2),
+                "valor_m2": _a_m2(promedio_3, m2_por_caja),
                 "ajustes": promedio_3_ajustes,
             },
         },
         "promedio_general": round(promedio_general, 2),
+        "promedio_general_m2": _a_m2(promedio_general, m2_por_caja),
         "meses_actual": round(meses_actual, 2) if meses_actual is not None else None,
         "meses_con_venta": meses_con_venta,
         "meses_historia": meses_historia,
-        "inventario_fin_mes": [
-            {"anio_mes": mes, "saldo": inventario_fin_mes.get(mes)} for mes in historia_meses
-        ],
+        "inventario_fin_mes": [_mes_fin(mes) for mes in historia_meses],
         "kardex_disponible": kardex_disponible,
         "inventario": {
             "disponible": disponible or 0,
+            "disponible_m2": _a_m2(disponible or 0, m2_por_caja),
             "transito": transito or 0,
+            "transito_m2": _a_m2(transito or 0, m2_por_caja),
             "comprometido": comprometido or 0,
+            "comprometido_m2": _a_m2(comprometido or 0, m2_por_caja),
             "disponible_neto": disponible_neto,
+            "disponible_neto_m2": _a_m2(disponible_neto, m2_por_caja),
             "sobrevendido": disponible_neto < 0,
         },
         "cobertura_actual": round(cobertura_actual, 2) if cobertura_actual is not None else None,
@@ -1057,6 +1086,9 @@ def generar_sugeridos(
         explicacion = " ".join(partes_explicacion)
 
         saldos_fin_mes = _saldos_fin_mes(kardex_por_linea.get(key, []), meses_display)
+        dias_sin_inventario = calc_dias_sin_inventario_por_mes(
+            kardex_por_linea.get(key, []), meses_display
+        )
 
         datos_decision = build_datos_decision(
             historia_meses=meses_display,
@@ -1071,6 +1103,7 @@ def generar_sugeridos(
             meses_historia=MESES_HISTORIA,
             inventario_fin_mes=saldos_fin_mes,
             kardex_disponible=kardex_disponible,
+            dias_sin_inventario=dias_sin_inventario,
             disponible=r["disponible"],
             transito=r["transito"],
             comprometido=r["comprometido"],
