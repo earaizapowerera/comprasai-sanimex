@@ -185,17 +185,25 @@ def calc_compra_sugerida(
     promedio_general: float,
     disponible: float,
     transito: float,
-    comprometido: float,
 ) -> float:
     """Fórmula del Excel de compras: MesesObjetivo x PROMEDIO - Disponible -
-    BackorderCompra(tránsito) + BackorderVenta(comprometido), sin netear el
-    disponible de antemano. Caso golden del mensaje puente: 6*504.6667-536-473+0
-    = 2019.0."""
+    BackorderCompra(tránsito), sin netear el disponible de antemano. Caso
+    golden del mensaje puente: 6*504.6667-536-473 = 2019.0.
+
+    T29 (waykee 291788, punto 4): el término '+ comprometido' se ELIMINA de
+    esta fórmula -- lo que la pantalla mostraba como "Backorder venta
+    (comprometido)" es en realidad BACKORDER TRASLADO (mercancía por SALIR de
+    la sucursal, no una venta pendiente de surtir), así que sumarlo a la
+    compra sugerida inflaba la cantidad a pedir por algo que no es demanda.
+    `comprometido` se sigue mostrando en el popup (ver build_datos_decision,
+    campo "backorder_traslado") y sigue afectando disponible_neto/cobertura
+    (RN-01, decide SI sugerir), solo se saca del MONTO a comprar. Cuando
+    exista backorder de VENTA real (cliente esperando surtido), ese término
+    se reintroduce por separado -- ver mensaje puente waykee 290066->291788."""
     bruta = (
         meses_objetivo * promedio_general
         - (disponible or 0.0)
         - (transito or 0.0)
-        + (comprometido or 0.0)
     )
     return round(max(0.0, bruta), 2)
 
@@ -483,6 +491,75 @@ def _saldos_fin_mes(puntos: list[tuple[str, float]], meses: list[str]) -> dict[s
             idx += 1
         resultado[mes] = ultimo_saldo
     return resultado
+
+
+def _dias_calendario_mes(anio_mes: str) -> list[str]:
+    """Todos los días calendario ('YYYY-MM-DD') de un mes 'YYYY-MM', usando
+    solo stdlib (sin `calendar`) -- el día 1 del mes siguiente menos un día
+    evita tener que tabular meses de 28/29/30/31 a mano."""
+    year, month = (int(x) for x in anio_mes.split("-"))
+    if month == 12:
+        primero_mes_sig = datetime(year + 1, 1, 1)
+    else:
+        primero_mes_sig = datetime(year, month + 1, 1)
+    n_dias = (primero_mes_sig - datetime(year, month, 1)).days
+    return [f"{year:04d}-{month:02d}-{d:02d}" for d in range(1, n_dias + 1)]
+
+
+def calc_dias_sin_inventario_por_mes(
+    puntos: list[tuple[str, float]], meses: list[str]
+) -> dict[str, dict]:
+    """T29 (waykee 291788, punto 3): "días sin inventario" por mes = días
+    calendario del mes con saldo de inventario en CERO (o negativo), fuente
+    ÚNICA función -- así se puede reemplazar por la tabla oficial que Araceli
+    trae de HANA (v7, ticket hermano del Data Expert) sin tocar al llamador.
+
+    `puntos` = TODO el historial de kardex_diario de la línea material+plant
+    (columna `fecha` 'YYYY-MM-DD', `saldo_fin_dia`), ordenado ascendente --
+    mismo insumo que `_saldos_fin_mes`. El kardex solo trae filas en días CON
+    movimiento, así que el saldo se ARRASTRA día a día (mismo criterio de
+    arrastre que `_saldos_fin_mes`, aquí a granularidad diaria en vez de solo
+    fin de mes) para capturar los días de stockout que persisten SIN
+    movimiento, no solo el día exacto en que la venta lo dejó en cero.
+
+    Si el primer movimiento conocido es POSTERIOR al día evaluado, ese día
+    queda SIN DETERMINAR (no cuenta ni en el numerador ni en `dias_con_dato`)
+    -- de ahí `cobertura_parcial`: True cuando el kardex no cubre el mes
+    completo, para que el popup muestre el tooltip de aviso en vez de
+    presentar un número silenciosamente incompleto."""
+    idx = 0
+    n = len(puntos)
+    ultimo_saldo: Optional[float] = None
+    resultado: dict[str, dict] = {}
+    for mes in meses:
+        dias_mes = _dias_calendario_mes(mes)
+        con_dato = 0
+        en_cero = 0
+        for dia in dias_mes:
+            while idx < n and puntos[idx][0] <= dia:
+                ultimo_saldo = puntos[idx][1]
+                idx += 1
+            if ultimo_saldo is not None:
+                con_dato += 1
+                if ultimo_saldo <= 0:
+                    en_cero += 1
+        resultado[mes] = {
+            "dias": en_cero,
+            "dias_con_dato": con_dato,
+            "dias_mes": len(dias_mes),
+            "cobertura_parcial": con_dato < len(dias_mes),
+        }
+    return resultado
+
+
+def _a_m2(valor_cajas: Optional[float], m2_por_caja: Optional[float]) -> Optional[float]:
+    """T29 (punto 2): equivalente en m2 de un valor en cajas, mismo criterio
+    ya usado por build_datos_decision para compra_sugerida_m2/cantidad_final_m2
+    -- multiplicar por m2_por_caja (constante por material). None cuando no
+    hay factor de conversión (m2_por_caja ausente/0) o el valor es None."""
+    if valor_cajas is None or not m2_por_caja:
+        return None
+    return round(valor_cajas * m2_por_caja, 2)
 
 
 def _modo_promedio3(db: sqlite3.Connection) -> str:
@@ -847,13 +924,15 @@ def generar_sugeridos(
             continue
 
         # T28 (waykee 291765): compra sugerida = fórmula del Excel de compras
-        # (MesesObjetivo x PROMEDIO_GENERAL - Disponible - Tránsito + Comprometido,
+        # (MesesObjetivo x PROMEDIO_GENERAL - Disponible - Tránsito,
         # sin netear de antemano -- ver calc_compra_sugerida), NO el faltante de
         # cobertura*demanda de la versión anterior. La cobertura sigue viniendo
         # de calc_cobertura_meses (RN-01, disponible_neto/dem) para decidir SI
         # se sugiere; el MONTO ya no depende de ese neteo.
+        # T29 (waykee 291788, punto 4): 'comprometido' YA NO participa en el
+        # MONTO -- ver docstring de calc_compra_sugerida.
         compra_sugerida = calc_compra_sugerida(
-            objetivo, dem, r["disponible"], r["transito"], r["comprometido"]
+            objetivo, dem, r["disponible"], r["transito"]
         )
 
         # RN-02: transferencia antes que compra, dentro del mismo corredor.

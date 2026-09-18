@@ -32,10 +32,13 @@ sys.path.insert(0, str(BACKEND_DIR))
 
 from app.routers.engines.sugeridos import (  # noqa: E402
     RATIO_M2_POR_PIEZA_FALLBACK,
+    _a_m2,
+    _dias_calendario_mes,
     backorder_detalle,
     build_datos_decision,
     calc_compra_sugerida,
     calc_consumo_mes_referencia_corregido,
+    calc_dias_sin_inventario_por_mes,
     calc_es_outlier_venta_dia,
     calc_factor_m2_por_pieza,
     calc_mad,
@@ -80,13 +83,25 @@ class CalcPromedio3PromediosTests(unittest.TestCase):
         self.assertAlmostEqual(calc_promedio_general(482, 438, 594), 504.6667, places=3)
 
     def test_calc_compra_sugerida_caso_golden(self):
-        # 6 * 504.6667 - 536 - 473 + 0 = 2019.0
+        # 6 * 504.6667 - 536 - 473 = 2019.0 (comprometido era 0 en este caso,
+        # así que el resultado no cambia con la fórmula T29 sin comprometido).
         self.assertAlmostEqual(
-            calc_compra_sugerida(6, 504.6667, 536, 473, 0), 2019.0, places=1
+            calc_compra_sugerida(6, 504.6667, 536, 473), 2019.0, places=1
         )
 
     def test_calc_compra_sugerida_no_baja_de_cero(self):
-        self.assertEqual(calc_compra_sugerida(2, 10, 1000, 0, 0), 0.0)
+        self.assertEqual(calc_compra_sugerida(2, 10, 1000, 0), 0.0)
+
+    def test_calc_compra_sugerida_ignora_comprometido(self):
+        # T29 (waykee 291788, punto 4): "Backorder venta (comprometido)" es en
+        # realidad backorder TRASLADO (mercancía por salir de la sucursal, no
+        # una venta pendiente de surtir) -- ya NO debe afectar el monto a
+        # comprar. Mismo golden case que arriba, pero demostrando que un
+        # comprometido>0 no cambia el resultado porque la función ya ni
+        # siquiera acepta ese parámetro.
+        self.assertAlmostEqual(
+            calc_compra_sugerida(6, 504.6667, 536, 473), 2019.0, places=1
+        )
 
     def test_calc_redondeo_pallets_completos_caso_golden(self):
         self.assertEqual(calc_redondeo_pallets_completos(2019, 16), 2032)
@@ -139,6 +154,70 @@ class CalcMotivoRedondeoPalletTests(unittest.TestCase):
     def test_sin_ajuste(self):
         motivo = calc_motivo_redondeo_pallet(bruta=40, final=40, cajas_por_pallet=40)
         self.assertIn("Sin ajuste", motivo)
+
+
+class DiasSinInventarioTests(unittest.TestCase):
+    """T29 (waykee 291788, punto 3): días sin inventario por mes, detrás de
+    una única función (calc_dias_sin_inventario_por_mes) para poder
+    reemplazar la fuente por HANA en v7 sin tocar al llamador."""
+
+    def test_dias_calendario_mes_28_29_30_31(self):
+        self.assertEqual(len(_dias_calendario_mes("2026-02")), 28)  # no bisiesto
+        self.assertEqual(len(_dias_calendario_mes("2024-02")), 29)  # bisiesto
+        self.assertEqual(len(_dias_calendario_mes("2026-04")), 30)
+        self.assertEqual(len(_dias_calendario_mes("2026-01")), 31)
+        self.assertEqual(_dias_calendario_mes("2026-01")[0], "2026-01-01")
+        self.assertEqual(_dias_calendario_mes("2026-01")[-1], "2026-01-31")
+
+    def test_dias_calendario_mes_diciembre_cruza_anio(self):
+        dias = _dias_calendario_mes("2025-12")
+        self.assertEqual(len(dias), 31)
+        self.assertEqual(dias[-1], "2025-12-31")
+
+    def test_sin_stockout_da_cero_dias(self):
+        puntos = [("2026-07-01", 100.0), ("2026-08-01", 80.0)]
+        res = calc_dias_sin_inventario_por_mes(puntos, ["2026-07", "2026-08"])
+        self.assertEqual(res["2026-07"]["dias"], 0)
+        self.assertEqual(res["2026-08"]["dias"], 0)
+        self.assertFalse(res["2026-07"]["cobertura_parcial"])
+
+    def test_arrastra_saldo_cero_hasta_el_proximo_movimiento(self):
+        # Se queda en 0 desde el día 10 hasta fin de mes (21 días en un mes de 30).
+        puntos = [("2026-04-01", 50.0), ("2026-04-10", 0.0), ("2026-05-05", 30.0)]
+        res = calc_dias_sin_inventario_por_mes(puntos, ["2026-04", "2026-05"])
+        self.assertEqual(res["2026-04"]["dias"], 21)
+        self.assertEqual(res["2026-04"]["dias_con_dato"], 30)
+        self.assertFalse(res["2026-04"]["cobertura_parcial"])
+
+    def test_kardex_no_cubre_el_mes_marca_cobertura_parcial(self):
+        # Primer movimiento a mitad de mes: los días previos quedan sin determinar.
+        puntos = [("2026-06-15", 40.0)]
+        res = calc_dias_sin_inventario_por_mes(puntos, ["2026-06"])
+        self.assertEqual(res["2026-06"]["dias_con_dato"], 16)  # 15..30
+        self.assertTrue(res["2026-06"]["cobertura_parcial"])
+
+    def test_sin_ningun_movimiento_todo_sin_determinar(self):
+        res = calc_dias_sin_inventario_por_mes([], ["2026-06"])
+        self.assertEqual(res["2026-06"]["dias"], 0)
+        self.assertEqual(res["2026-06"]["dias_con_dato"], 0)
+        self.assertTrue(res["2026-06"]["cobertura_parcial"])
+
+    def test_saldo_negativo_cuenta_como_sin_inventario(self):
+        puntos = [("2026-06-01", -5.0)]
+        res = calc_dias_sin_inventario_por_mes(puntos, ["2026-06"])
+        self.assertEqual(res["2026-06"]["dias"], 30)
+
+
+class AM2Tests(unittest.TestCase):
+    def test_convierte_cajas_a_m2(self):
+        self.assertAlmostEqual(_a_m2(10, 1.44), 14.4, places=2)
+
+    def test_sin_factor_regresa_none(self):
+        self.assertIsNone(_a_m2(10, None))
+        self.assertIsNone(_a_m2(10, 0))
+
+    def test_valor_none_regresa_none(self):
+        self.assertIsNone(_a_m2(None, 1.44))
 
 
 class BuildDatosDecisionTests(unittest.TestCase):
@@ -339,10 +418,31 @@ class GenerarSugeridosDatosDecisionIntegrationTests(unittest.TestCase):
         self.assertEqual(dd["proveedor"]["cajas_por_pallet"], 40)
         self.assertIsInstance(dd["compra"]["motivo"], str)
         self.assertGreater(len(dd["compra"]["motivo"]), 0)
-        # Compra sugerida (Excel): 2*40 - 100 - 0 + 50 = 30 -> pallet(30,40)=40.
-        self.assertAlmostEqual(dd["compra"]["compra_sugerida_cajas"], 30.0, places=1)
-        self.assertEqual(dd["compra"]["cantidad_final_cajas"], 40)
-        self.assertEqual(dd["compra"]["n_pallets"], 1)
+        # T29 (punto 4): comprometido YA NO participa en el monto.
+        # Compra sugerida: 2*40 - 100 - 0 = -20 -> clamp a 0.0 (sin compra).
+        self.assertAlmostEqual(dd["compra"]["compra_sugerida_cajas"], 0.0, places=1)
+        self.assertEqual(dd["compra"]["cantidad_final_cajas"], 0)
+        self.assertEqual(dd["compra"]["n_pallets"], 0)
+
+    def test_comprometido_no_afecta_compra_sugerida_pero_si_disponible_neto(self):
+        # T29 (waykee 291788, punto 4), golden test explícito del PM: dos
+        # escenarios idénticos salvo `comprometido` deben producir la MISMA
+        # compra_sugerida_cajas (ya no es parte de esa fórmula), aunque
+        # disponible_neto/sobrevendido (RN-01, decide SI sugerir) sí cambien.
+        dd_bajo = self._items_by_material()["MAT-NORMAL"]["datos_decision"]
+        self.conn.execute(
+            "UPDATE inventarios SET comprometido = 500 "
+            "WHERE material_id='MAT-NORMAL' AND plant='P1'"
+        )
+        dd_alto = self._items_by_material()["MAT-NORMAL"]["datos_decision"]
+        self.assertEqual(
+            dd_bajo["compra"]["compra_sugerida_cajas"],
+            dd_alto["compra"]["compra_sugerida_cajas"],
+        )
+        self.assertNotEqual(
+            dd_bajo["inventario"]["disponible_neto"],
+            dd_alto["inventario"]["disponible_neto"],
+        )
 
     def test_mat_sobrevendido_marca_disponible_neto_negativo(self):
         it = self._items_by_material()["MAT-SOBREVENDIDO"]
