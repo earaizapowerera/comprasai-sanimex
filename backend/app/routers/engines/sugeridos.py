@@ -631,6 +631,54 @@ def calc_dias_sin_inventario_por_mes(
     return resultado
 
 
+def _cargar_dias_sin_inventario_tabla(
+    db: sqlite3.Connection, material_ids: list[str], placeholders: str
+) -> dict[tuple[str, str, str], float]:
+    """v7 (mensaje puente 290066->291788, dataset data-real-car-v7): la tabla
+    dias_sin_inventario_mensual llega YA derivada del kardex por el Data
+    Expert (misma fuente que calc_dias_sin_inventario_por_mes) -- se lee tal
+    cual para evitar recomputar 3.9M combos material x plant x mes en
+    runtime. Solo se usa si trae las columnas esperadas; si el schema no
+    calza, se ignora con gracia y el llamador sigue calculando desde
+    kardex_diario (fallback sin cambios)."""
+    if not _tabla_existe(db, "dias_sin_inventario_mensual"):
+        return {}
+    cols = {row["name"] for row in db.execute("PRAGMA table_info(dias_sin_inventario_mensual)")}
+    if not {"material_id", "plant", "anio_mes", "dias_sin_inventario"} <= cols:
+        return {}
+    rows = db.execute(
+        f"""SELECT material_id, plant, anio_mes, dias_sin_inventario
+            FROM dias_sin_inventario_mensual
+            WHERE material_id IN ({placeholders})""",
+        material_ids,
+    ).fetchall()
+    return {(r["material_id"], r["plant"], r["anio_mes"]): r["dias_sin_inventario"] for r in rows}
+
+
+def _fusionar_dias_sin_inventario_tabla(
+    resultado: dict[str, dict],
+    tabla_dsi: dict[tuple[str, str, str], float],
+    material_id: str,
+    plant: str,
+) -> dict[str, dict]:
+    """La tabla v7 (HANA) manda sobre el cálculo local mes a mes cuando cubre
+    ese mes -- misma fuente, solo evita recomputar. Si no lo cubre, se
+    conserva el valor ya calculado desde kardex_diario (o el 'sin datos' por
+    default) sin cambios."""
+    fusion = dict(resultado)
+    for mes in resultado:
+        valor = tabla_dsi.get((material_id, plant, mes))
+        if valor is not None:
+            dias_mes = len(_dias_calendario_mes(mes))
+            fusion[mes] = {
+                "dias": valor,
+                "dias_con_dato": dias_mes,
+                "dias_mes": dias_mes,
+                "cobertura_parcial": False,
+            }
+    return fusion
+
+
 def _a_m2(valor_cajas: Optional[float], m2_por_caja: Optional[float]) -> Optional[float]:
     """T29 (punto 2): equivalente en m2 de un valor en cajas, mismo criterio
     ya usado por build_datos_decision para compra_sugerida_m2/cantidad_final_m2
@@ -848,6 +896,10 @@ def generar_sugeridos(
                 (kr["fecha"], kr["saldo_fin_dia"])
             )
         salidas_por_linea = _cargar_salidas_diarias(db, material_ids, placeholders)
+
+    # T29 (punto 3, v7): tabla oficial dias_sin_inventario_mensual -- si
+    # existe, manda sobre el cálculo local mes a mes (ver _fusionar_...).
+    tabla_dsi = _cargar_dias_sin_inventario_tabla(db, material_ids, placeholders)
 
     # T28 (waykee 291765): estrategia de Promedio 3 resuelta UNA vez por
     # request (no por línea) -- ver mensaje puente waykee 290066->291765.
@@ -1086,9 +1138,21 @@ def generar_sugeridos(
         explicacion = " ".join(partes_explicacion)
 
         saldos_fin_mes = _saldos_fin_mes(kardex_por_linea.get(key, []), meses_display)
-        dias_sin_inventario = calc_dias_sin_inventario_por_mes(
-            kardex_por_linea.get(key, []), meses_display
-        )
+        if kardex_disponible:
+            dias_sin_inventario = calc_dias_sin_inventario_por_mes(
+                kardex_por_linea.get(key, []), meses_display
+            )
+        else:
+            # Sin kardex_diario: "sin dato" (None), no "cero días de quiebre"
+            # -- mismo criterio que saldo=None en _saldos_fin_mes.
+            dias_sin_inventario = {
+                mes: {"dias": None, "dias_con_dato": None, "dias_mes": None, "cobertura_parcial": None}
+                for mes in meses_display
+            }
+        if tabla_dsi:
+            dias_sin_inventario = _fusionar_dias_sin_inventario_tabla(
+                dias_sin_inventario, tabla_dsi, r["material_id"], r["plant"]
+            )
 
         datos_decision = build_datos_decision(
             historia_meses=meses_display,

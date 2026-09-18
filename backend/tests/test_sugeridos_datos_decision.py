@@ -619,8 +619,89 @@ class KardexDiarioIntegrationTests(unittest.TestCase):
         self.assertFalse(dd["kardex_disponible"])
         self.assertEqual(len(dd["inventario_fin_mes"]), len(dd["historia"]["meses"]))
         self.assertTrue(all(p["saldo"] is None for p in dd["inventario_fin_mes"]))
+        # Sin kardex: días sin inventario tampoco se pueden determinar.
+        self.assertTrue(all(p["dias_sin_inventario"] is None for p in dd["inventario_fin_mes"]))
+        self.assertTrue(all(p["cobertura_parcial"] is None for p in dd["inventario_fin_mes"]))
         # Sin kardex ni stats: Promedio 3 sin ajuste (fuente 'sin_datos').
         self.assertTrue(all(a["fuente"] == "sin_datos" for a in dd["historia"]["promedio_3"]["ajustes"]))
+
+    def test_con_kardex_diario_poblado_calcula_dias_sin_inventario_por_mes(self):
+        # T29 (punto 3): mismo insumo de kardex que arrastra saldo_fin_mes --
+        # aquí julio queda en 0 desde el día 20 (30 cajas de salida agotan el
+        # saldo) hasta fin de mes: 12 días sin inventario (20..31).
+        self._crear_kardex_diario()
+        self.conn.execute(
+            "INSERT INTO kardex_diario (material_id, plant, fecha, salidas, saldo_fin_dia) VALUES "
+            "('MAT-NORMAL', 'P1', '2026-07-01', 0, 30), "
+            "('MAT-NORMAL', 'P1', '2026-07-20', 30, 0)"
+        )
+        self.conn.commit()
+        dd = self._generar_datos_decision()
+        por_mes = {p["anio_mes"]: p for p in dd["inventario_fin_mes"]}
+        self.assertEqual(por_mes["2026-07"]["dias_sin_inventario"], 12)
+        self.assertFalse(por_mes["2026-07"]["cobertura_parcial"])
+        self.assertEqual(por_mes["2026-07"]["dias_mes"], 31)
+        # Junio no tiene ningún movimiento propio ni previo -> sin determinar.
+        self.assertTrue(por_mes["2026-06"]["cobertura_parcial"])
+
+    def test_tabla_dias_sin_inventario_mensual_v7_manda_sobre_kardex(self):
+        # T29 (punto 3, mensaje puente 290066->291788): si la tabla oficial
+        # v7 (HANA, ya derivada del kardex por el Data Expert) trae el mes,
+        # se usa tal cual -- aunque el kardex local calcularía otro número.
+        self._crear_kardex_diario()
+        self.conn.execute(
+            "INSERT INTO kardex_diario (material_id, plant, fecha, salidas, saldo_fin_dia) VALUES "
+            "('MAT-NORMAL', 'P1', '2026-07-20', 30, 0)"
+        )
+        self.conn.execute(
+            """CREATE TABLE dias_sin_inventario_mensual (
+                material_id TEXT, plant TEXT, anio_mes TEXT, dias_sin_inventario REAL
+            )"""
+        )
+        self.conn.execute(
+            "INSERT INTO dias_sin_inventario_mensual "
+            "(material_id, plant, anio_mes, dias_sin_inventario) VALUES "
+            "('MAT-NORMAL', 'P1', '2026-07', 5)"
+        )
+        self.conn.commit()
+        dd = self._generar_datos_decision()
+        por_mes = {p["anio_mes"]: p for p in dd["inventario_fin_mes"]}
+        self.assertEqual(por_mes["2026-07"]["dias_sin_inventario"], 5)
+        self.assertFalse(por_mes["2026-07"]["cobertura_parcial"])
+        # Agosto no está en la tabla v7 -> sigue cayendo al cálculo local.
+        self.assertIn("dias_sin_inventario", por_mes["2026-08"])
+
+    def test_tabla_dias_sin_inventario_mensual_funciona_sin_kardex_diario(self):
+        # La tabla v7 es independiente de kardex_diario -- puede llegar sola.
+        self.conn.execute(
+            """CREATE TABLE dias_sin_inventario_mensual (
+                material_id TEXT, plant TEXT, anio_mes TEXT, dias_sin_inventario REAL
+            )"""
+        )
+        self.conn.execute(
+            "INSERT INTO dias_sin_inventario_mensual "
+            "(material_id, plant, anio_mes, dias_sin_inventario) VALUES "
+            "('MAT-NORMAL', 'P1', '2026-07', 3)"
+        )
+        self.conn.commit()
+        dd = self._generar_datos_decision()
+        self.assertFalse(dd["kardex_disponible"])
+        por_mes = {p["anio_mes"]: p for p in dd["inventario_fin_mes"]}
+        self.assertEqual(por_mes["2026-07"]["dias_sin_inventario"], 3)
+        self.assertFalse(por_mes["2026-07"]["cobertura_parcial"])
+        # Agosto no está en la tabla v7 y no hay kardex -> sin dato.
+        self.assertIsNone(por_mes["2026-08"]["dias_sin_inventario"])
+
+    def test_tabla_dias_sin_inventario_mensual_con_schema_incompleto_se_ignora(self):
+        # Defensivo: si el schema real no trae las columnas esperadas, se
+        # ignora la tabla entera y se sigue calculando desde kardex (no truena).
+        self._crear_kardex_diario()
+        self.conn.execute(
+            "CREATE TABLE dias_sin_inventario_mensual (material_id TEXT, algo_distinto REAL)"
+        )
+        self.conn.commit()
+        dd = self._generar_datos_decision()
+        self.assertTrue(dd["kardex_disponible"])
 
     def test_con_kardex_diario_poblado_arrastra_saldo_de_fin_de_mes(self):
         self._crear_kardex_diario()
