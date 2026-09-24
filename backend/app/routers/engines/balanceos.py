@@ -43,7 +43,7 @@ UMBRAL_DIAS_PEDIDO_DEFAULT = 30
 # redeploy.sh), así que cachear es seguro: se invalida solo si cambia la
 # tabla editable de costos por corredor (ver put_config).
 _cache_lock = threading.Lock()
-_cache: dict = {"propuestas": None, "costo_por_corredor_snapshot": None}
+_cache: dict = {"propuestas": None, "costo_por_corredor_snapshot": None, "generado": None, "duracion_ms": None}
 
 
 def _now() -> str:
@@ -441,7 +441,7 @@ def _compute_all_propuestas(db: sqlite3.Connection, costo_por_corredor: dict) ->
     return propuestas
 
 
-def _get_cached_propuestas(db: sqlite3.Connection) -> list[dict]:
+def _get_cached_propuestas(db: sqlite3.Connection, force: bool = False) -> list[dict]:
     costo_por_corredor = _costo_traslado_por_corredor(db)
     snapshot = tuple(sorted(costo_por_corredor.items()))
     # El lock envuelve TODO el cómputo (no solo el check) — si se libera
@@ -452,11 +452,15 @@ def _get_cached_propuestas(db: sqlite3.Connection) -> list[dict]:
     # cerrado durante el cálculo, la 2a..Na request simplemente esperan y
     # reciben el resultado ya cacheado de la 1a.
     with _cache_lock:
-        if _cache["propuestas"] is not None and _cache["costo_por_corredor_snapshot"] == snapshot:
+        if not force and _cache["propuestas"] is not None and _cache["costo_por_corredor_snapshot"] == snapshot:
             return _cache["propuestas"]
+        t0 = datetime.now(timezone.utc)
         propuestas = _compute_all_propuestas(db, costo_por_corredor)
+        t1 = datetime.now(timezone.utc)
         _cache["propuestas"] = propuestas
         _cache["costo_por_corredor_snapshot"] = snapshot
+        _cache["generado"] = t1.isoformat()
+        _cache["duracion_ms"] = int((t1 - t0).total_seconds() * 1000)
         return propuestas
 
 
@@ -464,6 +468,81 @@ def warm_cache(db: sqlite3.Connection) -> None:
     """Precalienta la cache en el startup de la app para que la primera
     request real de un usuario (o de QA) no pague el costo del cómputo."""
     _get_cached_propuestas(db)
+
+
+def recalcular_propuestas(db: sqlite3.Connection) -> dict:
+    """Recalcula (forzado) el cache de propuestas. Punto de enganche único
+    (waykee 292197) para: (a) el job diario de snapshot (292194) al terminar
+    de cargar datos nuevos, y (b) el botón "Recalcular ahora" de la UI.
+    No hay scheduler propio aquí a propósito: el disparo lo da el job de
+    snapshot, que es quien sabe cuándo cambiaron los datos."""
+    propuestas = _get_cached_propuestas(db, force=True)
+    return {
+        "total": len(propuestas),
+        "zonas": len({p["corredor"] for p in propuestas}),
+        "generado": _cache["generado"],
+        "duracionMs": _cache["duracion_ms"],
+    }
+
+
+def agrupar_por_zona(propuestas: list[dict]) -> list[dict]:
+    """Nivel 1 de la navegación (Zona): conteo y totales por corredor."""
+    zonas: dict[str, dict] = {}
+    for p in propuestas:
+        z = zonas.setdefault(
+            p["corredor"],
+            {"corredor": p["corredor"], "propuestas": 0, "materiales": set(),
+             "ahorroTotal": 0, "cajasTransferir": 0, "costoTraslado": 0},
+        )
+        z["propuestas"] += 1
+        z["materiales"].add(p["material_id"])
+        z["ahorroTotal"] += p["ahorroEstimado"]
+        z["cajasTransferir"] += p["cajasTransferir"]
+        z["costoTraslado"] += p["costoTraslado"]
+    out = [{**z, "materiales": len(z["materiales"])} for z in zonas.values()]
+    out.sort(key=lambda z: z["ahorroTotal"], reverse=True)
+    return out
+
+
+def agrupar_por_articulo(propuestas: list[dict], corredor: str) -> list[dict]:
+    """Nivel 2 de la navegación (Artículos): propuestas de UN corredor
+    agrupadas por material (un material puede tener varios destinos)."""
+    arts: dict[str, dict] = {}
+    for p in propuestas:
+        if p["corredor"] != corredor:
+            continue
+        a = arts.setdefault(
+            p["material_id"],
+            {"material_id": p["material_id"], "descripcion": p["descripcion"], "abc": p["abc"],
+             "propuestas": 0, "deficit": 0.0, "cajasTransferir": 0, "cajasComprar": 0,
+             "ahorroEstimado": 0, "destinos": []},
+        )
+        a["propuestas"] += 1
+        a["deficit"] = round(a["deficit"] + p["deficit"], 2)
+        a["cajasTransferir"] += p["cajasTransferir"]
+        a["cajasComprar"] += p["cajasComprar"]
+        a["ahorroEstimado"] += p["ahorroEstimado"]
+        a["destinos"].append({"origen": p["origen"], "destino": p["destino"], "cajas": p["cajasTransferir"]})
+    out = list(arts.values())
+    out.sort(key=lambda a: a["ahorroEstimado"], reverse=True)
+    return out
+
+
+@router.get("/zonas")
+def zonas_balanceo(db: sqlite3.Connection = Depends(get_db)):
+    todas = _get_cached_propuestas(db)
+    return {"total": len(todas), "items": agrupar_por_zona(todas), "generado": _cache["generado"]}
+
+
+@router.get("/articulos")
+def articulos_balanceo(corredor: str = Query(...), db: sqlite3.Connection = Depends(get_db)):
+    items = agrupar_por_articulo(_get_cached_propuestas(db), corredor)
+    return {"corredor": corredor, "total": len(items), "items": items, "generado": _cache["generado"]}
+
+
+@router.post("/recalcular")
+def recalcular_balanceo(db: sqlite3.Connection = Depends(get_db)):
+    return recalcular_propuestas(db)
 
 
 @router.get("/propuestas")
@@ -474,7 +553,7 @@ def propuestas_balanceo(
 ):
     todas = _get_cached_propuestas(db)
     filtradas = [p for p in todas if not corredor or p["corredor"] == corredor]
-    return {"total": len(filtradas), "items": filtradas[:limit], "generado": _now()}
+    return {"total": len(filtradas), "items": filtradas[:limit], "generado": _cache["generado"] or _now()}
 
 
 @router.get("/config")
