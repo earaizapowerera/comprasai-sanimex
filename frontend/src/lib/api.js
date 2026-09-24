@@ -66,4 +66,28 @@ export const api = {
     pedidosDetalle: (material_id, plant) =>
       apiGet('/engines/sugeridos/pedidos-detalle', { material_id, plant }),
   },
+
+  // Namespace de materiales (búsqueda para el combobox de Grid 1 de Balanceos, T-292187).
+  materiales: {
+    buscar: (search) => apiGet('/materiales', { search, page_size: 20 }),
+  },
+
+  // Motor de triggers de Balanceos v2 (waykee 292187): Grid 1 (por ubicación),
+  // sugerencia de cantidad, Grid 2 (pendientes/traslados) y descartes.
+  balanceos: {
+    grid: (material_id, corredor) => apiGet('/balanceos/grid', { material_id, corredor }),
+    backorderDetalle: (material_id, plant) =>
+      apiGet('/balanceos/grid/backorder-detalle', { material_id, plant }),
+    sugerenciaCantidad: (material_id, origen_plant, destino_plant) =>
+      apiGet('/balanceos/sugerencia-cantidad', { material_id, origen_plant, destino_plant }),
+    descartar: (material_id, plant, dias, motivo) =>
+      apiPost('/balanceos/descartes', { body: { material_id, plant, dias, motivo } }),
+    agregarPendiente: (material_id, origen_plant, destino_plant, cajas) =>
+      apiPost('/balanceos/pendientes', { body: { material_id, origen_plant, destino_plant, cajas } }),
+    pendientes: (estado) => apiGet('/balanceos/pendientes', { estado }),
+    generarTraslado: (origen_plant, destino_plant) =>
+      apiPost('/balanceos/pendientes/generar-traslado', { body: { origen_plant, destino_plant } }),
+    marcarEntregado: (traslado_ref) =>
+      apiPost('/balanceos/pendientes/marcar-entregado', { body: { traslado_ref } }),
+  },
 }
