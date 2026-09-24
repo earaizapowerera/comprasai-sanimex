@@ -75,6 +75,11 @@ export const api = {
   // Motor de triggers de Balanceos v2 (waykee 292187): Grid 1 (por ubicación),
   // sugerencia de cantidad, Grid 2 (pendientes/traslados) y descartes.
   balanceos: {
+    // Navegación v3 (waykee 292197): Zona -> Artículos -> Grid 1, sobre el
+    // cache de propuestas; recalcular fuerza el recómputo del motor.
+    zonas: () => apiGet('/balanceos/zonas'),
+    articulos: (corredor) => apiGet('/balanceos/articulos', { corredor }),
+    recalcular: () => apiPost('/balanceos/recalcular'),
     grid: (material_id, corredor) => apiGet('/balanceos/grid', { material_id, corredor }),
     backorderDetalle: (material_id, plant) =>
       apiGet('/balanceos/grid/backorder-detalle', { material_id, plant }),

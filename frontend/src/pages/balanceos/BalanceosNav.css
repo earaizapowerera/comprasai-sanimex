@@ -1,0 +1,42 @@
+/* Balanceos v3 (waykee 292197) — navegación Zona -> Artículos -> Grid 1.
+   Construido sobre design-tokens.css + components.css. */
+.bn { display: flex; flex-direction: column; gap: var(--space-5); }
+
+.bn-crumbs { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.bn-crumb {
+  background: none; border: none; padding: 0; font: inherit;
+  color: var(--accent); cursor: pointer;
+}
+.bn-crumb:hover { text-decoration: underline; }
+.bn-crumb--current { color: var(--text-primary); font-weight: var(--fw-semibold); cursor: default; }
+
+.bn-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-4); flex-wrap: wrap;
+}
+.bn-toolbar__actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.bn-aviso { height: auto; padding: 8px 14px; display: block; }
+
+.bn-zonas {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--gap-grid);
+}
+.bn-zona {
+  display: flex; flex-direction: column; gap: var(--space-4);
+  text-align: left; font: inherit; color: inherit; cursor: pointer;
+  transition: box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.bn-zona:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+.bn-zona:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+.bn-zona__top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+.bn-zona__count { font-size: var(--fs-callout); font-weight: var(--fw-bold); }
+.bn-zona__metrics {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3);
+  padding: var(--space-3); background: var(--bg-surface-2); border-radius: var(--radius-md);
+}
+.bn-zona__metrics > div { display: flex; flex-direction: column; gap: var(--space-1); }
+
+.bn-row { cursor: pointer; }
+.bn-row:focus-visible { outline: none; background: var(--bg-surface-3); }
+.bn-more { align-self: center; }

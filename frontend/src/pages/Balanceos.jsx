@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchRemates, ORGANIZACIONES } from "../lib/balanceosData";
 import { api } from "../lib/api.js";
+import BalanceosNav from "./balanceos/BalanceosNav.jsx";
 import "./Balanceos.css";
 
 /**
@@ -153,7 +154,7 @@ export default function Balanceos() {
         </div>
       )}
 
-      {tab === "balanceos" && <Grid1Tab />}
+      {tab === "balanceos" && <BalanceosNav DetalleComponent={Grid1Tab} />}
       {tab === "pendientes" && <Grid2Tab />}
       {tab === "remates" &&
         (loading ? <SkeletonList /> : <RematesTab items={remmatesFiltrados} onMarcar={marcarRemate} />)}
@@ -262,11 +263,12 @@ function MaterialCombobox({ value, onSelect }) {
 }
 
 /** Grid 1 (waykee 292187): preview por material+zona, una fila por ubicación,
- * con el trigger evaluado en backend (_compute_grid1). */
-function Grid1Tab() {
+ * con el trigger evaluado en backend (_compute_grid1). Desde v3 (292197) es el
+ * 3er nivel de BalanceosNav: llega con material y corredor ya elegidos. */
+function Grid1Tab({ initialMaterial = null, initialCorredor = "" }) {
   const [corredores, setCorredores] = useState([]);
-  const [corredor, setCorredor] = useState("");
-  const [material, setMaterial] = useState(null);
+  const [corredor, setCorredor] = useState(initialCorredor);
+  const [material, setMaterial] = useState(initialMaterial);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [queried, setQueried] = useState(false);
