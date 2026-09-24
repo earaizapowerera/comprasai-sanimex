@@ -1,16 +1,18 @@
 /**
- * Fuente de datos para la pantalla Balanceos & Remates.
+ * Fuente de datos del tab "Remates" de la pantalla Balanceos & Remates.
  *
- * Intenta consumir la API real de T4 (backend/motores_c1.py):
- *   GET /api/balanceos/propuestas
- *   GET /api/remates/detectar
- * Si el endpoint aún no existe (404) o falla la red, cae a un dataset mock
- * construido con el MISMO motor de reglas (remateEngine.js) que usará T4 en
- * Python — así los números que se ven en el demo respetan la minuta GAM
- * exacta y son 1:1 reemplazables por datos reales sin tocar la pantalla.
+ * El tab "Balanceos" (waykee 292187) consume el motor de triggers v2
+ * directamente vía api.balanceos.* (lib/api.js) — este archivo ya solo sirve
+ * a Remates.
+ *
+ * Intenta consumir la API real: GET /api/remates/detectar. Si el endpoint
+ * aún no existe (404) o falla la red, cae a un dataset mock construido con
+ * el MISMO motor de reglas (remateEngine.js) que usa el backend en Python —
+ * así los números que se ven en el demo respetan la minuta GAM exacta y son
+ * 1:1 reemplazables por datos reales sin tocar la pantalla.
  */
 
-import { buildRemateLine, computeTransferenciaCorredor } from "./remateEngine";
+import { buildRemateLine } from "./remateEngine";
 import { API_BASE } from "./api";
 
 // Tabla de ruteo GAM: corredor -> {cedis, remate}. En producción vive en BD
@@ -37,56 +39,6 @@ async function tryFetch(path) {
   } catch {
     return null;
   }
-}
-
-// ---------------------------------------------------------------------------
-// BALANCEOS — propuestas de transferencia dentro de corredor (RN-02)
-// ---------------------------------------------------------------------------
-const MOCK_BALANCEOS_RAW = [
-  { material_id: "SAN-PIS-0112", descripcion: "Piso Porcelanato 60x60 Beige", abc: "A", corredor: "Corredor Noreste",
-    origen: { plant: "P010", nombre: "Sanimex Monterrey Apodaca" }, destino: { plant: "P004", nombre: "Sanimex Monterrey Centro" },
-    deficit: 60, excedenteCorredor: 95, precioVenta: 310, costoCajaTraslado: 38 },
-  { material_id: "SAN-AZU-0087", descripcion: "Azulejo 30x60 Gris", abc: "B", corredor: "Corredor Bajío",
-    origen: { plant: "P021", nombre: "Sanimex León Centro" }, destino: { plant: "P018", nombre: "Sanimex Celaya Centro" },
-    deficit: 40, excedenteCorredor: 22, precioVenta: 165, costoCajaTraslado: 30 },
-  { material_id: "SAN-SAN-0033", descripcion: "Sanitario Dueto Blanco", abc: "A", corredor: "Corredor Centro",
-    origen: { plant: "P002", nombre: "Sanimex CDMX Coyoacán" }, destino: { plant: "P009", nombre: "Sanimex CDMX Naucalpan" },
-    deficit: 18, excedenteCorredor: 25, precioVenta: 2450, costoCajaTraslado: 210 },
-  { material_id: "SAN-PIS-0056", descripcion: "Piso Cerámico 45x45 Arena", abc: "B", corredor: "Corredor Occidente",
-    origen: { plant: "P014", nombre: "Sanimex Guadalajara Centro" }, destino: { plant: "P027", nombre: "Sanimex Colima Centro" },
-    deficit: 72, excedenteCorredor: 50, precioVenta: 128, costoCajaTraslado: 22 },
-  { material_id: "SAN-FAC-0019", descripcion: "Fachada Piedra Rústica", abc: "C", corredor: "Corredor Noreste",
-    origen: { plant: "P006", nombre: "Sanimex Saltillo Centro" }, destino: { plant: "P010", nombre: "Sanimex Monterrey Apodaca" },
-    deficit: 30, excedenteCorredor: 30, precioVenta: 245, costoCajaTraslado: 34 },
-  { material_id: "SAN-PEG-0004", descripcion: "Pegazulejo Bulto 25kg", abc: "B", corredor: "Corredor Bajío",
-    origen: { plant: "P018", nombre: "Sanimex Celaya Centro" }, destino: { plant: "P021", nombre: "Sanimex León Centro" },
-    deficit: 26, excedenteCorredor: 34, precioVenta: 210, costoCajaTraslado: 18 },
-];
-
-function buildBalanceos() {
-  return MOCK_BALANCEOS_RAW.map((b, i) => {
-    const { transferir, comprar, cubreCompleto } = computeTransferenciaCorredor(b.deficit, b.excedenteCorredor);
-    const ahorroEstimado = Math.round(transferir * b.precioVenta * 0.62 - transferir * b.costoCajaTraslado);
-    return {
-      id: `BAL-${String(i + 1).padStart(3, "0")}`,
-      ...b,
-      cajasTransferir: transferir,
-      cajasComprar: comprar,
-      cubreCompleto,
-      costoTraslado: Math.round(transferir * b.costoCajaTraslado),
-      ahorroEstimado: Math.max(0, ahorroEstimado),
-      estado: "pendiente",
-      layer: "C3",
-    };
-  });
-}
-
-export async function fetchBalanceos() {
-  const real = await tryFetch("/balanceos/propuestas");
-  if (real && Array.isArray(real.items ?? real)) {
-    return { items: real.items ?? real, source: "api" };
-  }
-  return { items: buildBalanceos(), source: "mock" };
 }
 
 // ---------------------------------------------------------------------------
