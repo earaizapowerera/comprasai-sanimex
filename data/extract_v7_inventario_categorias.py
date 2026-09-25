@@ -702,28 +702,31 @@ def validar_kardex_vs_cierre(scur, mes=None):
 
 
 # ------------------------------------------------------------------- verificacion
-V6_TABLES_ESPERADAS = {
-    "backorder_detalle": 11097, "balanceo_costo_corredor": 0, "coberturas_objetivo": 7421,
-    "inventarios": 177172, "kardex_diario": 4535059, "leadtimes_reales": 2331,
-    "materiales": 7421, "pedidos_compra_detalle": 184990, "proveedores": 7421,
-    "remate_escalas": 4, "remate_plazas_excepcion": 6, "remate_rutas_gam": 5,
-    "sucursales": 233, "sugeridos_generados": 5, "ventas_mensuales": 1302504,
-    "ventas_stats_mensuales": 1347663,
-}
+def contar_tablas_base(scur):
+    """Counts de las tablas previas a v7 (las de la base de partida). Se toman
+    ANTES de extraer: la corrida diaria cambia de volumen cada día, así que la
+    vara es la propia base, no counts fijos de una corrida vieja."""
+    scur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+    tablas = sorted(r[0] for r in scur.fetchall() if r[0] not in V7_TABLES)
+    conteos = {}
+    for t in tablas:
+        scur.execute(f'SELECT COUNT(*) FROM "{t}"')
+        conteos[t] = scur.fetchone()[0]
+    return conteos
 
 
-def verificar_aditivo(scur):
-    print("\n== Verificacion ADITIVA (tablas v6 intactas) ==", flush=True)
+def verificar_aditivo(scur, esperados):
+    print("\n== Verificacion ADITIVA (tablas de la base intactas) ==", flush=True)
     ok = True
     detalle = {}
-    for t, esperado in sorted(V6_TABLES_ESPERADAS.items()):
-        scur.execute(f"SELECT COUNT(*) FROM {t}")
+    for t, esperado in sorted(esperados.items()):
+        scur.execute(f'SELECT COUNT(*) FROM "{t}"')
         real = scur.fetchone()[0]
         detalle[t] = {"esperado": esperado, "real": real, "ok": real == esperado}
         if real != esperado:
             ok = False
             print(f"   !! {t}: esperado {esperado:,} / real {real:,}", flush=True)
-    print("   OK: las 16 tablas de datos de v6 conservan sus counts" if ok
+    print(f"   OK: las {len(esperados)} tablas de la base conservan sus counts" if ok
           else "   FALLO: v7 NO es aditivo", flush=True)
     return ok, detalle
 
@@ -790,6 +793,7 @@ def main():
 
     sq = sqlite3.connect(args.out)
     scur = sq.cursor()
+    conteos_base = contar_tablas_base(scur)
     scur.executescript(DDL)
 
     scur.execute("SELECT material_id FROM materiales")
@@ -819,7 +823,7 @@ def main():
     sq.commit()
 
     validacion = validar_kardex_vs_cierre(scur)
-    ok, detalle_v6 = verificar_aditivo(scur)
+    ok, detalle_v6 = verificar_aditivo(scur, conteos_base)
     rep = {"generado": dt.datetime.now(dt.timezone.utc).isoformat(),
            "base": args.base, "out": args.out, "aditivo_ok": ok,
            "v6_counts": detalle_v6, "v7": resumen(scur),

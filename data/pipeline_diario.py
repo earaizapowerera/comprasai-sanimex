@@ -66,7 +66,9 @@ def cargar_env():
             linea = linea.strip()
             if linea and not linea.startswith("#") and "=" in linea:
                 k, v = linea.split("=", 1)
-                os.environ.setdefault(k.strip().removeprefix("export "), v.strip().strip("'\""))
+                k = k.strip().removeprefix("export ")
+                if not os.environ.get(k):  # vacía cuenta como ausente
+                    os.environ[k] = v.strip().strip("'\"")
 
 
 def log(msg: str, fh):
@@ -79,7 +81,8 @@ def log(msg: str, fh):
 def correr(paso: str, args: list[str], fh):
     t0 = time.time()
     log(f">> {paso}: {' '.join(Path(a).name if a.endswith('.db') else a for a in args)}", fh)
-    r = subprocess.run([sys.executable, *args], cwd=HERE, stdout=fh, stderr=subprocess.STDOUT)
+    r = subprocess.run([sys.executable, *args], cwd=HERE, stdout=fh, stderr=subprocess.STDOUT,
+                       env={**os.environ, "PYTHONUNBUFFERED": "1"})  # log en vivo
     if r.returncode != 0:
         raise PasoFallido(paso, f"exit {r.returncode}")
     log(f"<< {paso} OK ({time.time() - t0:.0f}s)", fh)
