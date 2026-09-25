@@ -22,7 +22,9 @@ from app.core.agent_scope import AgentScopeMiddleware
 from app.core.config import AUTO_SEED_IF_MISSING, DB_PATH, FRONTEND_STATIC_DIR
 from app.core.db import get_connection, get_db
 from app.routers import agent as agent_router
+from app.core import sucursal_compra
 from app.routers import engines_status, inventarios, kpis, materiales, semaforo, sucursales, ventas
+from app.routers import sucursal_compra as sucursal_compra_router
 from app.routers.engines import balanceos as engine_balanceos
 from app.routers.engines import chat_agente
 from app.routers.engines import forecast as engine_forecast
@@ -77,6 +79,7 @@ def _init_engine_tables() -> None:
         engine_remates.init_tables(conn)
         engine_balanceos.init_tables(conn)
         engine_lotes_compra.init_tables(conn)  # 292251: tablas + seed PET de ejemplo
+        sucursal_compra.recalcular(conn)  # 292252: antes del warm_cache, que ya filtra con él
         engine_balanceos.warm_cache(conn)  # evita que el primer usuario pague el cómputo (~2-3s)
 
 
@@ -88,6 +91,7 @@ def health():
 app.include_router(agent_router.router)
 app.include_router(materiales.router)
 app.include_router(sucursales.router)
+app.include_router(sucursal_compra_router.router)
 app.include_router(inventarios.router)
 app.include_router(kpis.router)
 app.include_router(ventas.router)
