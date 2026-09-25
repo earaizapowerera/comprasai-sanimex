@@ -76,11 +76,13 @@ def _crear_tablas_meses_objetivo(db: sqlite3.Connection) -> None:
         )"""
     )
     if _tabla_existe(db, "coberturas_objetivo"):
-        # INSERT OR IGNORE: solo siembra materiales que AÚN no tienen default
-        # propio (p.ej. editado a mano vía PUT /objetivo) -- no pisa ediciones.
+        # Solo siembra materiales que AÚN no tienen default propio (p.ej.
+        # editado a mano vía PUT /objetivo) -- no pisa ediciones. NOT EXISTS en
+        # vez de INSERT OR IGNORE para que corra igual en SQL Server.
         db.execute(
-            """INSERT OR IGNORE INTO meses_objetivo_default (material_id, meses)
-               SELECT material_id, meses_objetivo FROM coberturas_objetivo"""
+            """INSERT INTO meses_objetivo_default (material_id, meses)
+               SELECT c.material_id, c.meses_objetivo FROM coberturas_objetivo c
+               WHERE NOT EXISTS (SELECT 1 FROM meses_objetivo_default d WHERE d.material_id = c.material_id)"""
         )
 
 

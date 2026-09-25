@@ -8,7 +8,7 @@ from typing import Optional
 
 from fastapi import Body, Depends, HTTPException, Query
 
-from app.core.db import get_db
+from app.core.db import get_db, upsert
 
 from .persistencia import _ensure_tables, _now
 
@@ -47,18 +47,9 @@ def editar_meses_objetivo(
     sucursal, que manda sobre el default la próxima vez que se genere."""
     _ensure_tables(db)
     if plant:
-        db.execute(
-            """INSERT INTO meses_objetivo_excepcion (material_id, plant, meses)
-               VALUES (?, ?, ?)
-               ON CONFLICT(material_id, plant) DO UPDATE SET meses = excluded.meses""",
-            [material_id, plant, meses],
-        )
+        upsert(db, "meses_objetivo_excepcion", {"material_id": material_id, "plant": plant}, {"meses": meses})
     else:
-        db.execute(
-            """INSERT INTO meses_objetivo_default (material_id, meses) VALUES (?, ?)
-               ON CONFLICT(material_id) DO UPDATE SET meses = excluded.meses""",
-            [material_id, meses],
-        )
+        upsert(db, "meses_objetivo_default", {"material_id": material_id}, {"meses": meses})
     db.commit()
     return {"ok": True, "material_id": material_id, "plant": plant, "meses": meses,
             "nivel": "excepcion" if plant else "default"}

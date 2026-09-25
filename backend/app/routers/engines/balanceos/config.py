@@ -8,7 +8,7 @@ from typing import Optional
 
 from fastapi import Body, Depends, Query
 
-from app.core.db import get_db
+from app.core.db import get_db, upsert
 
 from .constantes import UMBRAL_DIAS_PEDIDO_DEFAULT
 from .persistencia import _ensure_tables, _umbral_dias_pedido
@@ -21,11 +21,7 @@ def get_umbral_dias(db: sqlite3.Connection = Depends(get_db)):
 
 def put_umbral_dias(umbral_dias: int = Body(..., embed=True, gt=0), db: sqlite3.Connection = Depends(get_db)):
     _ensure_tables(db)
-    db.execute(
-        """INSERT INTO balanceo_umbral_dias_pedido (categoria, umbral_dias) VALUES ('__default__', ?)
-           ON CONFLICT(categoria) DO UPDATE SET umbral_dias = excluded.umbral_dias""",
-        (umbral_dias,),
-    )
+    upsert(db, "balanceo_umbral_dias_pedido", {"categoria": "__default__"}, {"umbral_dias": umbral_dias})
     db.commit()
     return get_umbral_dias(db)
 
@@ -48,17 +44,10 @@ def put_prioridad(
     (material_id+plant)."""
     _ensure_tables(db)
     if plant:
-        db.execute(
-            """INSERT INTO balanceo_prioridad_excepcion (material_id, plant, prioridad) VALUES (?, ?, ?)
-               ON CONFLICT(material_id, plant) DO UPDATE SET prioridad = excluded.prioridad""",
-            (material_id, plant, prioridad),
-        )
+        upsert(db, "balanceo_prioridad_excepcion", {"material_id": material_id, "plant": plant},
+               {"prioridad": prioridad})
     else:
-        db.execute(
-            """INSERT INTO balanceo_prioridad_default (material_id, prioridad) VALUES (?, ?)
-               ON CONFLICT(material_id) DO UPDATE SET prioridad = excluded.prioridad""",
-            (material_id, prioridad),
-        )
+        upsert(db, "balanceo_prioridad_default", {"material_id": material_id}, {"prioridad": prioridad})
     db.commit()
     return {"ok": True}
 

@@ -1,11 +1,16 @@
-"""Helpers de conexión a SQLite. Sin ORM a propósito: el contrato de datos
+"""Helpers de conexión. Sin ORM a propósito: el contrato de datos
 (ver core/schema.sql) es la interfaz estable entre el generador sintético,
-los datos reales de SAP y los motores C1/C2/C3."""
+los datos reales de SAP y los motores C1/C2/C3.
+
+Almacenamiento: SQLite (DB_PATH) por default; SQL Server (snapshot diario en
+dbdev) si está definida COMPRASAI_SQLSERVER_HOST. Ambos exponen la misma
+interfaz (execute/executemany/commit, filas como dict), ver core/sqlserver.py."""
 
 import sqlite3
 from contextlib import contextmanager
 from typing import Iterator
 
+from app.core import sqlserver
 from app.core.config import DB_PATH
 
 
@@ -15,6 +20,8 @@ def _row_factory(cursor: sqlite3.Cursor, row: tuple) -> dict:
 
 
 def get_raw_connection() -> sqlite3.Connection:
+    if sqlserver.enabled():
+        return sqlserver.connect()  # type: ignore[return-value]
     # check_same_thread=False: FastAPI resuelve dependencias sync y ejecuta el
     # endpoint vía run_in_threadpool en llamadas *separadas*, que pueden caer en
     # threads distintos del pool para la misma request. La conexión se crea en
@@ -59,3 +66,16 @@ def get_db() -> Iterator[sqlite3.Connection]:
     """Dependencia de FastAPI: una conexión por request."""
     with get_connection() as conn:
         yield conn
+
+
+def upsert(db, table: str, keys: dict, values: dict) -> None:
+    """INSERT o UPDATE por llave, portable SQLite/SQL Server (sin ON CONFLICT
+    ni MERGE). `table` y los nombres de columna vienen del código, nunca del
+    usuario."""
+    sets = ", ".join(f"{c} = ?" for c in values)
+    where = " AND ".join(f"{c} = ?" for c in keys)
+    cur = db.execute(f"UPDATE {table} SET {sets} WHERE {where}", [*values.values(), *keys.values()])
+    if cur.rowcount == 0:
+        cols = [*keys, *values]
+        db.execute(f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+                   [*keys.values(), *values.values()])

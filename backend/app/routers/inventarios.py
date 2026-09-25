@@ -128,8 +128,8 @@ COBERTURA_CTE = f"""
 """
 
 ORDER_COLUMNS = {
-    "cobertura_asc": "(cobertura_meses IS NULL) ASC, cobertura_meses ASC",
-    "cobertura_desc": "(cobertura_meses IS NULL) ASC, cobertura_meses DESC",
+    "cobertura_asc": "CASE WHEN cobertura_meses IS NULL THEN 1 ELSE 0 END ASC, cobertura_meses ASC",
+    "cobertura_desc": "CASE WHEN cobertura_meses IS NULL THEN 1 ELSE 0 END ASC, cobertura_meses DESC",
     "disponible_neto_asc": "disponible_neto ASC",
     "disponible_neto_desc": "disponible_neto DESC",
     "material_id": "material_id ASC, plant ASC",
@@ -249,7 +249,7 @@ def cobertura_priorizadas(
     quiebre = db.execute(
         f"""{COBERTURA_CTE} SELECT * FROM scored {where_sql}
             {"AND" if where else "WHERE"} estado IN ('quiebre', 'riesgo')
-            ORDER BY (cobertura_meses IS NULL) ASC, cobertura_meses ASC LIMIT ?""",
+            ORDER BY CASE WHEN cobertura_meses IS NULL THEN 1 ELSE 0 END ASC, cobertura_meses ASC LIMIT ?""",
         [*params, limit],
     ).fetchall()
 

@@ -10,7 +10,7 @@ from typing import Optional
 
 from fastapi import Body, Depends, Query
 
-from app.core.db import get_db
+from app.core.db import get_db, upsert
 
 from .constantes import _now
 from .persistencia import _ensure_tables
@@ -25,13 +25,8 @@ def crear_descarte(
 ):
     _ensure_tables(db)
     hasta = (datetime.now(timezone.utc).date() + timedelta(days=dias)).isoformat()
-    db.execute(
-        """INSERT INTO balanceo_descarte (material_id, plant, hasta_fecha, motivo, creado)
-           VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(material_id, plant) DO UPDATE SET
-               hasta_fecha = excluded.hasta_fecha, motivo = excluded.motivo, creado = excluded.creado""",
-        (material_id, plant, hasta, motivo, _now()),
-    )
+    upsert(db, "balanceo_descarte", {"material_id": material_id, "plant": plant},
+           {"hasta_fecha": hasta, "motivo": motivo, "creado": _now()})
     db.commit()
     return {"ok": True, "hastaFecha": hasta}
 
@@ -74,13 +69,14 @@ def listar_pendientes(estado: str = Query("pendiente"), db: sqlite3.Connection =
                JOIN sucursales so ON so.plant = p.origen_plant
                JOIN sucursales sd ON sd.plant = p.destino_plant
                WHERE p.estado = 'pendiente'
-               GROUP BY p.origen_plant, p.destino_plant
+               GROUP BY p.origen_plant, p.destino_plant, so.nombre, sd.nombre
                ORDER BY cajas DESC"""
         ).fetchall()
         return {"items": rows}
 
     rows = db.execute(
-        """SELECT p.traslado_ref, p.origen_plant, p.destino_plant, so.nombre AS origen_nombre, sd.nombre AS destino_nombre,
+        """SELECT p.traslado_ref, MIN(p.origen_plant) AS origen_plant, MIN(p.destino_plant) AS destino_plant,
+                  MIN(so.nombre) AS origen_nombre, MIN(sd.nombre) AS destino_nombre,
                   SUM(p.cajas) AS cajas, COUNT(*) AS items, MIN(p.posteado_en) AS posteado_en
            FROM balanceo_pendiente p
            JOIN sucursales so ON so.plant = p.origen_plant
