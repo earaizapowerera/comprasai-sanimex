@@ -1,0 +1,17 @@
+# Overlay de PRODUCCIÓN (comprassanimexai.powerera.com) -- waykee 292300.
+# Se aplica encima de docker-compose.yml desde deploy/prod/redeploy.sh.
+#  - SQL Server = papeles de trabajo (snapshot diario de pipeline_diario.py):
+#    los motores leen de ahí. Ya NO se inyecta ningún .db congelado.
+#  - HANA CAR en vivo para abrir artículos, vía el túnel inverso desde la Mac
+#    con VPN (deploy/hana-tunnel) que escucha en el gateway docker del host.
+# Credenciales SOLO en secrets/*.env del servidor (chmod 600, fuera de git).
+services:
+  comprasai-backend:
+    env_file:
+      - ./secrets/sqlserver.env
+      - ./secrets/hana.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - AUTO_SEED_IF_MISSING=0
+      - COMPRASAI_AGENT_KEY=${COMPRASAI_AGENT_KEY:-}

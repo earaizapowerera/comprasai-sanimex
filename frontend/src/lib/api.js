@@ -77,6 +77,12 @@ export const api = {
     },
   },
 
+  // Artículo abierto (waykee 292300): HANA en vivo, snapshot solo como
+  // respaldo marcado en `fuente` (live / motivo_fallback / corte_snapshot_utc).
+  articulos: {
+    vivo: (material_id, plant) => apiGet(`/articulos/${encodeURIComponent(material_id)}/vivo`, { plant }),
+  },
+
   // Namespace de materiales (búsqueda para el combobox de Grid 1 de Balanceos, T-292187).
   materiales: {
     buscar: (search) => apiGet('/materiales', { search, page_size: 20 }),

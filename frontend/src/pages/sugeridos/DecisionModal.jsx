@@ -1,4 +1,6 @@
 import React, { useEffect } from "react";
+import FuenteBadge from "../../components/FuenteBadge.jsx";
+import useArticuloVivo from "../../hooks/useArticuloVivo.js";
 import { api } from "../../lib/api.js";
 import DecisionHistoria from "./DecisionHistoria.jsx";
 import DrillDown from "./DrillDown.jsx";
@@ -36,16 +38,36 @@ function EncabezadoDecision({ row, dd, esDecidido, onClose }) {
   );
 }
 
+/** Posición de HOY (HANA en vivo, waykee 292300) sobre la que se muestra el
+ * resumen; el valor con el que corrió el sugerido queda como referencia. */
+function posicionActual(vivo, row, inv) {
+  if (!vivo?.fuente?.live) return inv;
+  const p = vivo.posiciones.find((x) => x.plant === row.plant) || {};
+  return { disponible: p.disponible || 0, transito: p.transito || 0, comprometido: p.comprometido || 0 };
+}
+
+function AlSugerir({ actual, alSugerir }) {
+  if (actual === alSugerir || alSugerir == null) return null;
+  return <div className="caption text-tertiary">al sugerir: {fmtInt.format(alSugerir)} caj</div>;
+}
+
 /** Bloque de inventario/backorder/promedio arriba del histórico. */
-function ResumenInventario({ row, dd, inv }) {
+function ResumenInventario({ row, dd, inv: invSugerido }) {
+  const { data: vivo } = useArticuloVivo(row.material_id, row.plant);
+  const esVivo = !!vivo?.fuente?.live;
+  const inv = { ...invSugerido, ...posicionActual(vivo, row, invSugerido) };
   return (
     <div className="card card--flat" style={{ marginTop: 12, padding: 12 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+        {vivo ? <FuenteBadge fuente={vivo.fuente} /> : <span className="caption text-tertiary">Consultando HANA…</span>}
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
         <div>
           <div className="footnote text-secondary">Inventario actual</div>
           <strong className="tnum">
-            {fmtInt.format(inv.disponible || 0)} caj{m2Suffix(inv.disponible_m2)}
+            {fmtInt.format(inv.disponible || 0)} caj{esVivo ? "" : m2Suffix(inv.disponible_m2)}
           </strong>
+          <AlSugerir actual={inv.disponible} alSugerir={invSugerido.disponible} />
         </div>
         <div>
           <div className="footnote text-secondary">Backorder compra (tránsito)</div>
@@ -55,7 +77,8 @@ function ResumenInventario({ row, dd, inv }) {
             cargar={() => api.sugeridos.pedidosDetalle(row.material_id, row.plant)}
             columnas={PEDIDOS_COLUMNAS}
           />
-          {inv.transito_m2 != null && <div className="caption text-tertiary">{fmtM2.format(inv.transito_m2)} m²</div>}
+          {!esVivo && inv.transito_m2 != null && <div className="caption text-tertiary">{fmtM2.format(inv.transito_m2)} m²</div>}
+          <AlSugerir actual={inv.transito} alSugerir={invSugerido.transito} />
         </div>
         <div>
           <div className="footnote text-secondary">Backorder traslado (por salir)</div>
@@ -65,7 +88,8 @@ function ResumenInventario({ row, dd, inv }) {
             cargar={() => api.sugeridos.backorderDetalle(row.material_id, row.plant)}
             columnas={BACKORDER_COLUMNAS}
           />
-          {inv.comprometido_m2 != null && <div className="caption text-tertiary">{fmtM2.format(inv.comprometido_m2)} m²</div>}
+          {!esVivo && inv.comprometido_m2 != null && <div className="caption text-tertiary">{fmtM2.format(inv.comprometido_m2)} m²</div>}
+          <AlSugerir actual={inv.comprometido} alSugerir={invSugerido.comprometido} />
         </div>
         <div>
           <div className="footnote text-secondary">PROMEDIO general</div>

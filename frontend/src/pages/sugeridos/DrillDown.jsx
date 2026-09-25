@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import FuenteBadge from "../../components/FuenteBadge.jsx";
 import { fmtInt } from "./formato.js";
 
 /** T25 (waykee 290148): botón que expande el detalle documento-a-documento
@@ -48,6 +49,7 @@ export default function DrillDown({ label, cantidad, cargar, columnas }) {
       {open && (
         <div className="card card--flat" style={{ marginTop: 6, padding: 8, maxHeight: 170, overflowY: "auto" }}>
           {loading && <div className="caption text-tertiary">Cargando…</div>}
+          {data?.fuente && <FuenteBadge fuente={data.fuente} style={{ marginBottom: 6 }} />}
           {error && <div className="caption" style={{ color: "var(--danger-text)" }}>{error}</div>}
           {data && data.disponible === false && (
             <div className="caption text-tertiary">

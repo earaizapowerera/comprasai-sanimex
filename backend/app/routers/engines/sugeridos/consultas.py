@@ -13,6 +13,7 @@ from typing import Optional
 from fastapi import Depends, Query
 from fastapi.responses import StreamingResponse
 
+from app.core import articulo_vivo
 from app.core.db import get_db
 
 from .persistencia import _ensure_tables, _tabla_existe
@@ -50,29 +51,28 @@ def lista_sugeridos(
     return {"items": rows}
 
 
+def _detalle_vivo(db, material_id: str, plant: str, parte: str, tabla: str) -> dict:
+    """292300: el drill-down se abre sobre UN artículo -> HANA en vivo, con el
+    snapshot (tabla v5 `tabla`) solo como respaldo marcado en `fuente`."""
+    datos = articulo_vivo.leer(db, material_id, plant, partes=(parte,))
+    disponible = datos["fuente"]["live"] or _tabla_existe(db, tabla)
+    return {"disponible": disponible, "material_id": material_id, "plant": plant,
+            "fuente": datos["fuente"], "docs": datos[parte]}
+
+
 def backorder_detalle(
     material_id: str = Query(...),
     plant: str = Query(...),
     db: sqlite3.Connection = Depends(get_db),
 ):
     """T25 (waykee 290148): drill-down documento a documento del comprometido
-    (backorder) de una línea material+plant, para el clic desde ExplainPanel.
-    La tabla `backorder_detalle` (dataset v5: documento, posicion, cliente,
-    cantidad_pendiente, fecha_documento, fecha_entrega_comprometida) la sigue
-    extrayendo el Data Expert en waykee 290147 -- mientras no exista se
-    responde `disponible: False` para que el frontend muestre el aviso de
-    "detalle en camino" en vez de un 500."""
-    if not _tabla_existe(db, "backorder_detalle"):
-        return {"disponible": False, "material_id": material_id, "plant": plant, "documentos": []}
-    rows = db.execute(
-        """SELECT documento, posicion, cliente, cantidad_pendiente,
-                  fecha_documento, fecha_entrega_comprometida
-           FROM backorder_detalle
-           WHERE material_id = ? AND plant = ?
-           ORDER BY fecha_entrega_comprometida""",
-        [material_id, plant],
-    ).fetchall()
-    return {"disponible": True, "material_id": material_id, "plant": plant, "documentos": rows}
+    (backorder = entregas abiertas LIPS/LIKP): documento, posicion, cliente,
+    cantidad_pendiente, fecha_documento, fecha_entrega_comprometida.
+    `disponible: False` solo si HANA no responde Y el snapshot no trae la
+    tabla de detalle -- el frontend muestra entonces el aviso degradado."""
+    r = _detalle_vivo(db, material_id, plant, "backorder", "backorder_detalle")
+    r["documentos"] = r.pop("docs")
+    return r
 
 
 def pedidos_detalle(
@@ -81,22 +81,12 @@ def pedidos_detalle(
     db: sqlite3.Connection = Depends(get_db),
 ):
     """T25 (waykee 290148): drill-down por orden de compra de "pedidos por
-    cumplir" (tránsito) de una línea material+plant. Tabla
-    `pedidos_compra_detalle` (dataset v5: po, posicion, proveedor,
-    cantidad_pendiente, fecha_po, fecha_entrega_estimada), misma coordinación
-    con el Data Expert en waykee 290147 y mismo fallback degradado que
-    backorder-detalle mientras no aterriza."""
-    if not _tabla_existe(db, "pedidos_compra_detalle"):
-        return {"disponible": False, "material_id": material_id, "plant": plant, "pedidos": []}
-    rows = db.execute(
-        """SELECT po, posicion, proveedor, cantidad_pendiente,
-                  fecha_po, fecha_entrega_estimada
-           FROM pedidos_compra_detalle
-           WHERE material_id = ? AND plant = ?
-           ORDER BY fecha_entrega_estimada""",
-        [material_id, plant],
-    ).fetchall()
-    return {"disponible": True, "material_id": material_id, "plant": plant, "pedidos": rows}
+    cumplir": po, posicion, proveedor, cantidad_pendiente, fecha_po,
+    fecha_entrega_estimada. Mismo contrato en vivo/respaldo que
+    backorder-detalle."""
+    r = _detalle_vivo(db, material_id, plant, "pedidos", "pedidos_compra_detalle")
+    r["pedidos"] = r.pop("docs")
+    return r
 
 
 def exportar_sap(db: sqlite3.Connection = Depends(get_db)):

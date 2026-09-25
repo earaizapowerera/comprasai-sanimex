@@ -11,3 +11,5 @@ dist/
 .env
 backend/data/comprasai.db-wal
 backend/data/comprasai.db-shm
+secrets/
+docker-compose.override.yml

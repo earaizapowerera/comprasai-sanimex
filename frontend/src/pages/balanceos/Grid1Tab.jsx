@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import FuenteBadge from "../../components/FuenteBadge.jsx";
 import { api } from "../../lib/api.js";
 import AgregarModal from "./AgregarModal.jsx";
 import BackorderModal from "./BackorderModal.jsx";
@@ -15,6 +16,7 @@ export default function Grid1Tab({ initialMaterial = null, initialCorredor = "" 
   const [corredor, setCorredor] = useState(initialCorredor);
   const [material, setMaterial] = useState(initialMaterial);
   const [items, setItems] = useState([]);
+  const [fuente, setFuente] = useState(null);
   const [loading, setLoading] = useState(false);
   const [queried, setQueried] = useState(false);
   const [agregarRow, setAgregarRow] = useState(null);
@@ -35,6 +37,7 @@ export default function Grid1Tab({ initialMaterial = null, initialCorredor = "" 
     try {
       const res = await api.balanceos.grid(material.material_id, corredor || undefined);
       setItems(res.items || []);
+      setFuente(res.fuente || null);
     } finally {
       setLoading(false);
       setQueried(true);
@@ -82,6 +85,11 @@ export default function Grid1Tab({ initialMaterial = null, initialCorredor = "" 
         </div>
       ) : (
         <div className="card" style={{ overflowX: "auto", padding: 0 }}>
+          {fuente && (
+            <div style={{ display: "flex", justifyContent: "flex-end", padding: "8px 12px 0" }}>
+              <FuenteBadge fuente={fuente} />
+            </div>
+          )}
           <table className="table">
             <thead>
               <tr>
