@@ -185,6 +185,30 @@ def calc_dias_desde_pedido(material_id: str, plant: str, hoy: date) -> int:
     return (hoy - fecha_pedido).days
 
 
+def resumir_pedidos_compra(documentos: list[dict], plant: str, hoy: date) -> dict:
+    """Backorder de compra de UNA sucursal a partir del detalle real por OC
+    (waykee 292243). Regla de negocio (Enrique): la OC indica el almacén
+    donde se recibe y solo cuenta en la sucursal receptora. El receptor es
+    pedidos_compra_detalle.plant = EKPO.WERKS de la línea de la OC (su
+    almacén EKPO.LGORT pertenece a ese mismo centro, p.ej. M416/B416).
+    Por eso se filtra por plant aquí mismo aunque el llamador ya lo haga:
+    una OC de otra sucursal de la zona nunca debe sumar en esta fila.
+
+    Antigüedad = MIN(fecha_po) de las OCs pendientes (la más vieja manda
+    para el Trigger 2). numero = OCs distintas, no líneas."""
+    propios = [
+        d for d in documentos
+        if d["plant"] == plant and (d["cantidad_pendiente"] or 0) > 0
+    ]
+    cajas = round(sum(d["cantidad_pendiente"] for d in propios), 2)
+    fechas = [date.fromisoformat(d["fecha_po"]) for d in propios if d["fecha_po"]]
+    return {
+        "cajas": cajas,
+        "numeroPedidos": len({d["po"] for d in propios}),
+        "diasDesdePedido": (hoy - min(fechas)).days if fechas else None,
+    }
+
+
 def evaluar_trigger(
     disponible_neto: float,
     cobertura: Optional[float],
@@ -659,6 +683,13 @@ def _compute_grid1(db: sqlite3.Connection, material_id: str, corredor: Optional[
 
     umbral_dias = _umbral_dias_pedido(db)
     descartes = _descartes_activos(db, material_id, hoy)
+    docs_compra = None
+    if _tabla_existe(db, "pedidos_compra_detalle"):
+        docs_compra = db.execute(
+            """SELECT plant, po, cantidad_pendiente, fecha_po FROM pedidos_compra_detalle
+               WHERE material_id = ?""",
+            (material_id,),
+        ).fetchall()
 
     lineas = []
     for r in rows:
@@ -677,8 +708,18 @@ def _compute_grid1(db: sqlite3.Connection, material_id: str, corredor: Optional[
             o["row"]["plant"] != r["plant"] and o["row"]["corredor"] == r["corredor"] and not es_rojo(o["estado"])
             for o in lineas
         )
-        pedidos_abiertos = r["pedidos_abiertos"] or 0
-        dias_desde_pedido = calc_dias_desde_pedido(material_id, r["plant"], hoy) if pedidos_abiertos > 0 else None
+        if docs_compra is not None:
+            compra = resumir_pedidos_compra(docs_compra, r["plant"], hoy)
+        else:
+            # Dataset sin detalle por OC: agregado + fecha simulada (292187).
+            cajas_ag = r["pedidos_abiertos"] or 0
+            compra = {
+                "cajas": cajas_ag,
+                "numeroPedidos": 1 if cajas_ag > 0 else 0,
+                "diasDesdePedido": calc_dias_desde_pedido(material_id, r["plant"], hoy) if cajas_ag > 0 else None,
+            }
+        pedidos_abiertos = compra["cajas"]
+        dias_desde_pedido = compra["diasDesdePedido"]
         trigger = evaluar_trigger(
             linea["disponible_neto"], linea["cobertura"], r["meses_objetivo"],
             pedidos_abiertos, dias_desde_pedido, umbral_dias, alternativa,
@@ -707,7 +748,7 @@ def _compute_grid1(db: sqlite3.Connection, material_id: str, corredor: Optional[
                 "cajas": pedidos_abiertos,
                 "metros": calc_cajas_a_m2(pedidos_abiertos, m2_por_caja),
                 "diasDesdePedido": dias_desde_pedido,
-                "numeroPedidos": 1 if pedidos_abiertos > 0 else 0,
+                "numeroPedidos": compra["numeroPedidos"],
             },
             "backorderTraslado": {
                 "cajas": comprometido,
