@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.agent_scope import AgentScopeMiddleware
 from app.core.config import AUTO_SEED_IF_MISSING, DB_PATH, FRONTEND_STATIC_DIR
-from app.core.db import get_connection, get_db
+from app.core.db import enable_wal, get_connection, get_db
 from app.routers import agent as agent_router
 from app.core import sucursal_compra
 from app.routers import engines_status, inventarios, kpis, materiales, semaforo, sucursales, ventas
@@ -76,6 +76,7 @@ def _init_engine_tables() -> None:
     'database is locked' bajo concurrencia — ver comentarios en
     engines/remates.py y engines/balanceos.py)."""
     with get_connection() as conn:
+        logger.info("SQLite journal_mode=%s", enable_wal(conn))  # 292251: lecturas largas no bloquean escrituras
         engine_remates.init_tables(conn)
         engine_balanceos.init_tables(conn)
         engine_lotes_compra.init_tables(conn)  # 292251: tablas + seed PET de ejemplo

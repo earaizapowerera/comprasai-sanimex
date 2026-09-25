@@ -9,3 +9,5 @@ backend/data/comprasai.db
 node_modules/
 dist/
 .env
+backend/data/comprasai.db-wal
+backend/data/comprasai.db-shm

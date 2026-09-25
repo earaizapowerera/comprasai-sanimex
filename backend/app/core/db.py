@@ -35,6 +35,17 @@ def get_raw_connection() -> sqlite3.Connection:
     return conn
 
 
+def enable_wal(conn: sqlite3.Connection) -> str:
+    """Pone la BD en WAL (persistente en el archivo; basta una vez al arranque).
+    En el modo 'delete' que traen los snapshots, una lectura larga (p.ej.
+    /api/engines/sugeridos/generar, 20 s-2 min con el dataset v7) retiene un
+    lock SHARED y cualquier escritura concurrente -- aunque sea el INSERT OR
+    IGNORE de _ensure_tables en /lista u /opciones -- agota busy_timeout y
+    sale como 500 'database is locked'. En WAL lectores y escritor no se
+    bloquean entre sí (waykee 292251)."""
+    return conn.execute("PRAGMA journal_mode = WAL").fetchone()["journal_mode"]
+
+
 @contextmanager
 def get_connection() -> Iterator[sqlite3.Connection]:
     conn = get_raw_connection()
