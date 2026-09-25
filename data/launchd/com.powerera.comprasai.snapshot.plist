@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Snapshot diario ComprasAI (waykee 292194). Instalar:
+     cp data/launchd/com.powerera.comprasai.snapshot.plist ~/Library/LaunchAgents/
+     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.powerera.comprasai.snapshot.plist
+     Requiere la Mac encendida y con VPN Sanimex a la hora de disparo (HANA es on-prem).
+     Credenciales: ~/.config/comprasai/{hana,sqlserver,pipeline}.env (modo 600). -->
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.powerera.comprasai.snapshot</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/enrique/comprasai-work/venv312/bin/python</string>
+        <string>/Users/enrique/comprasai-sanimex/data/pipeline_diario.py</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict><key>Hour</key><integer>4</integer><key>Minute</key><integer>15</integer></dict>
+    <key>StandardOutPath</key><string>/Users/enrique/comprasai-pipeline/launchd.out.log</string>
+    <key>StandardErrorPath</key><string>/Users/enrique/comprasai-pipeline/launchd.err.log</string>
+</dict>
+</plist>
