@@ -54,6 +54,8 @@ APP_TABLES = {
     "balanceo_prioridad_default", "balanceo_prioridad_excepcion",
     "balanceo_umbral_dias_pedido", "meses_objetivo_default", "meses_objetivo_excepcion",
     "remate_escalas", "remate_plazas_excepcion", "remate_rutas_gam", "sugeridos_generados",
+    "lotes_compra", "lotes_compra_clasificacion", "sucursal_compra", "sucursal_compra_config",
+    "sucursal_compra_evidencia", "sucursal_compra_override",
 }
 
 

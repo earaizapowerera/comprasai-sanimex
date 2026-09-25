@@ -20,7 +20,8 @@ import time
 SAMPLE_PATHS = {"material_id": None, "plant": None, "plant_o_canal": None}
 SKIP = {"/api/health"}
 # Campos que cambian en cada corrida (hora de generación, UUID de sugerido).
-VOLATILE = {"generado", "generado_hace_segundos", "creado", "actualizado", "id"}
+VOLATILE = {"generado", "generado_hace_segundos", "creado", "actualizado", "id",
+            "creado_en", "actualizado_en"}
 
 
 def _samples(client) -> dict:

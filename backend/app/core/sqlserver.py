@@ -82,10 +82,14 @@ def _split_literals(sql: str) -> list[tuple[bool, str]]:
 
 
 def _placeholders(sql: str) -> str:
+    # pytds aplica `sql % params` a TODO el texto (siempre se le pasan params,
+    # aunque sea una tupla vacía), así que el % de un literal ('PET%') también
+    # se escapa.
     out = []
     for is_lit, text in _split_literals(sql):
+        text = text.replace("%", "%%")
         if not is_lit:
-            text = text.replace("%", "%%").replace("?", "%s")
+            text = text.replace("?", "%s")
             text = _NAMED.sub(r"%(\1)s", text)
         out.append(text)
     return "".join(out)
@@ -163,8 +167,21 @@ def translate(sql: str, params: Any) -> tuple[Optional[str], Any]:
 # ---------------------------------------------------------------- conexión
 
 class _Cursor:
-    def __init__(self, rows: list[dict], rowcount: int, description):
+    def __init__(self, rows: list[dict], rowcount: int, description, raw=None):
         self._rows, self.rowcount, self.description = rows, rowcount, description
+        self._raw = raw
+
+    @property
+    def lastrowid(self) -> Optional[int]:
+        """Último IDENTITY de la sesión. SCOPE_IDENTITY() no sirve aquí: cada
+        sentencia parametrizada corre en su propio scope (sp_executesql). Las
+        tablas `app` no tienen triggers, así que @@IDENTITY es exacto."""
+        if self._raw is None:
+            return None
+        cur = self._raw.cursor()
+        cur.execute("SELECT CAST(@@IDENTITY AS BIGINT) AS id")
+        row = cur.fetchone()
+        return row["id"] if row else None
 
     def fetchone(self) -> Optional[dict]:
         return self._rows.pop(0) if self._rows else None
@@ -191,7 +208,7 @@ class SqlServerConnection:
         cur = self._raw.cursor()
         cur.execute(tsql, tuple(params) if isinstance(params, list) else params)
         rows = cur.fetchall() if cur.description else []
-        return _Cursor(list(rows), cur.rowcount, cur.description)
+        return _Cursor(list(rows), cur.rowcount, cur.description, self._raw)
 
     def executemany(self, sql: str, seq_of_params) -> _Cursor:
         tsql, _ = translate(sql, None)
@@ -200,6 +217,13 @@ class SqlServerConnection:
         cur = self._raw.cursor()
         cur.executemany(tsql, [tuple(p) if isinstance(p, list) else p for p in seq_of_params])
         return _Cursor([], cur.rowcount, None)
+
+    def executescript(self, script: str) -> None:
+        """Solo DDL de tablas auxiliares (CREATE TABLE IF NOT EXISTS), que en
+        SQL Server ya provisiona sqlserver_app_schema.sql."""
+        for stmt in script.split(";"):
+            if stmt.strip():
+                self.execute(stmt)
 
     def commit(self) -> None:
         self._raw.commit()
@@ -235,11 +259,28 @@ def connect() -> SqlServerConnection:
     return SqlServerConnection(raw)
 
 
+_BORN: set[str] = set()
+
+
+def born_this_run(table: str) -> bool:
+    """True si `table` la creó ensure_app_schema en este arranque. Equivale al
+    "la tabla acaba de nacer" con el que SQLite decide sembrar ejemplos."""
+    return table in _BORN
+
+
+def _app_tables(raw) -> set[str]:
+    cur = raw.cursor()
+    cur.execute("SELECT name FROM sys.tables WHERE schema_id = SCHEMA_ID('app')")
+    return {r["name"] for r in cur.fetchall()}
+
+
 def ensure_app_schema(conn: SqlServerConnection) -> None:
     """Crea (idempotente) el schema `app` y sus sinónimos en dbo."""
     raw = conn._raw
+    before = _app_tables(raw)
     for batch in re.split(r"^\s*GO\s*$", APP_SCHEMA_SQL.read_text(), flags=re.MULTILINE):
         if batch.strip():
             cur = raw.cursor()
             cur.execute(batch)
     raw.commit()
+    _BORN.update(_app_tables(raw) - before)

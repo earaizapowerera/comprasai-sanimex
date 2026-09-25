@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from app.core import sucursal_compra as sc
-from app.core.db import get_db
+from app.core.db import get_db, upsert
 
 router = APIRouter(prefix="/api/sucursal-compra", tags=["sucursal-compra"])
 
@@ -55,10 +55,8 @@ def put_override(
     sc.init_tables(db)
     if not db.execute("SELECT 1 FROM sucursales WHERE plant = ?", (plant,)).fetchone():
         raise HTTPException(404, f"sucursal {plant} no existe")
-    db.execute(
-        "INSERT OR REPLACE INTO sucursal_compra_override (plant, clase, motivo, usuario, actualizado) VALUES (?,?,?,?,?)",
-        (plant, clase, motivo, usuario, sc._now()),
-    )
+    upsert(db, "sucursal_compra_override", {"plant": plant},
+           {"clase": clase, "motivo": motivo, "usuario": usuario, "actualizado": sc._now()})
     db.commit()
     return sc.recalcular(db)
 

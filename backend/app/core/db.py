@@ -49,7 +49,10 @@ def enable_wal(conn: sqlite3.Connection) -> str:
     lock SHARED y cualquier escritura concurrente -- aunque sea el INSERT OR
     IGNORE de _ensure_tables en /lista u /opciones -- agota busy_timeout y
     sale como 500 'database is locked'. En WAL lectores y escritor no se
-    bloquean entre sí (waykee 292251)."""
+    bloquean entre sí (waykee 292251). En SQL Server no aplica (el motor ya
+    aísla lectores de escritores por filas)."""
+    if sqlserver.enabled():
+        return "n/a (sqlserver)"
     return conn.execute("PRAGMA journal_mode = WAL").fetchone()["journal_mode"]
 
 

@@ -130,6 +130,71 @@ CREATE TABLE app.meses_objetivo_excepcion (
   PRIMARY KEY (material_id, plant))
 GO
 
+IF OBJECT_ID('app.lotes_compra') IS NULL
+CREATE TABLE app.lotes_compra (
+  id INT IDENTITY PRIMARY KEY,
+  nombre NVARCHAR(400) COLLATE Latin1_General_100_BIN2 NOT NULL,
+  fecha_inicio NVARCHAR(40) COLLATE Latin1_General_100_BIN2 NOT NULL,
+  fecha_fin NVARCHAR(40) COLLATE Latin1_General_100_BIN2 NOT NULL,
+  activo INT NOT NULL DEFAULT 1,
+  creado_por NVARCHAR(200) COLLATE Latin1_General_100_BIN2 NULL,
+  creado_en NVARCHAR(40) COLLATE Latin1_General_100_BIN2 NOT NULL,
+  actualizado_en NVARCHAR(40) COLLATE Latin1_General_100_BIN2 NOT NULL,
+  CHECK (fecha_fin >= fecha_inicio))
+GO
+
+IF OBJECT_ID('app.lotes_compra_clasificacion') IS NULL
+CREATE TABLE app.lotes_compra_clasificacion (
+  lote_id INT NOT NULL REFERENCES app.lotes_compra(id) ON DELETE CASCADE,
+  clasificacion NVARCHAR(100) COLLATE Latin1_General_100_BIN2 NOT NULL,
+  PRIMARY KEY (lote_id, clasificacion))
+GO
+
+IF OBJECT_ID('app.sucursal_compra_evidencia') IS NULL
+CREATE TABLE app.sucursal_compra_evidencia (
+  plant NVARCHAR(100) COLLATE Latin1_General_100_BIN2 PRIMARY KEY,
+  oc_ext_12m INT NOT NULL DEFAULT 0,
+  lineas_12m INT NOT NULL DEFAULT 0,
+  proveedores_12m INT NOT NULL DEFAULT 0,
+  ult_oc_ext NVARCHAR(40) COLLATE Latin1_General_100_BIN2 NULL,
+  oc_ext_24m INT NOT NULL DEFAULT 0,
+  traslados_12m INT NOT NULL DEFAULT 0,
+  ventana_desde NVARCHAR(40) COLLATE Latin1_General_100_BIN2 NULL,
+  ventana_hasta NVARCHAR(40) COLLATE Latin1_General_100_BIN2 NULL,
+  extraido NVARCHAR(40) COLLATE Latin1_General_100_BIN2 NULL)
+GO
+
+IF OBJECT_ID('app.sucursal_compra_override') IS NULL
+CREATE TABLE app.sucursal_compra_override (
+  plant NVARCHAR(100) COLLATE Latin1_General_100_BIN2 PRIMARY KEY,
+  clase NVARCHAR(40) COLLATE Latin1_General_100_BIN2 NOT NULL,
+  motivo NVARCHAR(MAX) COLLATE Latin1_General_100_BIN2 NULL,
+  usuario NVARCHAR(200) COLLATE Latin1_General_100_BIN2 NULL,
+  actualizado NVARCHAR(40) COLLATE Latin1_General_100_BIN2 NOT NULL)
+GO
+
+IF OBJECT_ID('app.sucursal_compra_config') IS NULL
+CREATE TABLE app.sucursal_compra_config (
+  clave NVARCHAR(100) COLLATE Latin1_General_100_BIN2 PRIMARY KEY,
+  valor NVARCHAR(400) COLLATE Latin1_General_100_BIN2 NOT NULL)
+GO
+
+-- Catálogo derivado: lo reescribe sucursal_compra.recalcular (columnas en el
+-- mismo orden que el DDL SQLite: el INSERT es posicional).
+IF OBJECT_ID('app.sucursal_compra') IS NULL
+CREATE TABLE app.sucursal_compra (
+  plant NVARCHAR(100) COLLATE Latin1_General_100_BIN2 PRIMARY KEY,
+  clase NVARCHAR(40) COLLATE Latin1_General_100_BIN2 NOT NULL,
+  clase_calculada NVARCHAR(40) COLLATE Latin1_General_100_BIN2 NOT NULL,
+  fuente NVARCHAR(40) COLLATE Latin1_General_100_BIN2 NOT NULL,
+  oc_ext_12m INT NULL,
+  traslados_12m INT NULL,
+  ult_oc_ext NVARCHAR(40) COLLATE Latin1_General_100_BIN2 NULL,
+  skus_con_inventario INT NULL,
+  umbral_oc_anual INT NOT NULL,
+  generado NVARCHAR(40) COLLATE Latin1_General_100_BIN2 NOT NULL)
+GO
+
 -- Sinónimos dbo.X -> app.X (el SQL de los routers usa nombres sin schema).
 DECLARE @t SYSNAME, @s NVARCHAR(400)
 DECLARE c CURSOR LOCAL FAST_FORWARD FOR
