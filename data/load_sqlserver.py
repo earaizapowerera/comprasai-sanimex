@@ -180,6 +180,10 @@ def _ensure_schemas(conn) -> None:
           rows_loaded BIGINT NULL,
           status NVARCHAR(20) NOT NULL,
           error NVARCHAR(MAX) NULL)""", commit=True)
+    # Hora de corte de los datos (mtime del SQLite que produjo el extractor);
+    # started_utc es la hora de CARGA, que puede ser días después.
+    sql(conn, "IF COL_LENGTH('dbo.snapshot_runs', 'data_cutoff_utc') IS NULL "
+              "ALTER TABLE dbo.snapshot_runs ADD data_cutoff_utc DATETIME2 NULL", commit=True)
 
 
 def _drop_schema_tables(conn, schema: str) -> None:
@@ -320,9 +324,10 @@ def run(sqlite_path: str, dry_run: bool, only: Optional[set] = None) -> int:
     conn = _open()
     _ensure_schemas(conn)
     _close_orphan_runs(conn)
-    run_id = sql(conn, "INSERT INTO dbo.snapshot_runs (started_utc, source_file, status) "
-                       "OUTPUT INSERTED.id VALUES (%s, %s, 'running')",
-                 (datetime.now(timezone.utc).replace(tzinfo=None), sqlite_path), commit=True)[0][0]
+    cutoff = datetime.fromtimestamp(os.path.getmtime(sqlite_path), timezone.utc).replace(tzinfo=None)
+    run_id = sql(conn, "INSERT INTO dbo.snapshot_runs (started_utc, source_file, data_cutoff_utc, status) "
+                       "OUTPUT INSERTED.id VALUES (%s, %s, %s, 'running')",
+                 (datetime.now(timezone.utc).replace(tzinfo=None), sqlite_path, cutoff), commit=True)[0][0]
     try:
         _drop_schema_tables(conn, STG)
         total = 0
