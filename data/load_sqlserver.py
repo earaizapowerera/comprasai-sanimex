@@ -32,6 +32,18 @@ from typing import Optional
 SKIP_TABLES = {"sqlite_sequence", "sqlite_stat1", "sqlite_stat4"}
 STG, DBO, OLD = "stg", "dbo", "old"
 LOCK_NAME = "comprasai_snapshot_load"
+# Colación binaria en todo texto: reproduce la semántica de SQLite (igualdad,
+# DISTINCT y ORDER BY sensibles a mayúsculas, orden por code point). Con la
+# colación CI de la base, DISTINCT fusionaba 'Ceramica X' con 'CERAMICA X' y
+# ORDER BY cambiaba el orden (y con él las muestras deterministas del API).
+# Debe coincidir con backend/app/core/sqlserver_app_schema.sql.
+TEXT_COLLATION = "Latin1_General_100_BIN2"
+# El swap necesita stg + dbo a la vez (~2x). Sin compresión el v7 ocupa ~2.9 GB
+# y la carga llenó el disco de dbdev (25-sep-2026). PAGE reduce ~70%.
+COMPRESSION = "DATA_COMPRESSION = PAGE"
+# Errores de servidor donde reintentar no sirve (1105: filegroup lleno,
+# 9002: log lleno): se aborta de inmediato para no seguir escribiendo.
+NO_RETRY_ERRORS = ("filegroup is full", "transaction log for database")
 SOCKET_TIMEOUT_S = 900
 TABLE_ATTEMPTS = 3
 # Configuración y decisiones de usuarios (PUT de remates/balanceos, descartes).
@@ -100,18 +112,20 @@ def table_spec(src: sqlite3.Connection, table: str) -> dict:
 
 def create_ddl(spec: dict, schema: str) -> list[str]:
     t = f"[{schema}].[{spec['table']}]"
-    cols = [f"[{c['name']}] {c['type']}{' NOT NULL' if c['not_null'] else ''}"
+    cols = [f"[{c['name']}] {c['type']}"
+            f"{' COLLATE ' + TEXT_COLLATION if c['type'].startswith('NVARCHAR') else ''}"
+            f"{' NOT NULL' if c['not_null'] else ''}"
             for c in spec["columns"]]
     if spec["pk"]:
         pk_cols = ", ".join(f"[{c}]" for c in spec["pk"])
         cols.append(f"CONSTRAINT [PK_{spec['table']}] PRIMARY KEY ({pk_cols})")
-    return [f"CREATE TABLE {t} (\n  " + ",\n  ".join(cols) + "\n)"]
+    return [f"CREATE TABLE {t} (\n  " + ",\n  ".join(cols) + f"\n) WITH ({COMPRESSION})"]
 
 
 def index_ddl(spec: dict, schema: str) -> list[str]:
     t = f"[{schema}].[{spec['table']}]"
-    return [f"CREATE INDEX [{name}] ON {t} (" + ", ".join(f"[{c}]" for c in cols) + ")"
-            for name, cols in spec["indexes"]]
+    return [f"CREATE INDEX [{name}] ON {t} (" + ", ".join(f"[{c}]" for c in cols)
+            + f") WITH ({COMPRESSION})" for name, cols in spec["indexes"]]
 
 
 # ---------------------------------------------------------------- conexión
@@ -247,6 +261,24 @@ def _open(conn=None):
     return conn
 
 
+def _record_failure(conn, run_id: int, exc: Exception):
+    """Marca la corrida en error y libera stg (dbo queda intacto). Si la
+    conexión murió, reabre una: la corrida nunca debe quedar en 'running'."""
+    for attempt in (1, 2):
+        try:
+            if attempt == 2:
+                conn = _open(conn)
+            conn.rollback()
+            _drop_schema_tables(conn, STG)
+            sql(conn, "UPDATE dbo.snapshot_runs SET finished_utc=SYSUTCDATETIME(), "
+                      "status='error', error=%s WHERE id=%s", (str(exc)[:4000], run_id), commit=True)
+            return conn
+        except Exception as again:
+            if attempt == 2:
+                print(f"No se pudo registrar el error de la corrida {run_id}: {again}", file=sys.stderr)
+    return conn
+
+
 def stage_table(src: sqlite3.Connection, conn, spec: dict):
     """Crea y carga una tabla en stg, reintentando con conexión nueva si la red
     se cae. Devuelve (conexión vigente, filas)."""
@@ -263,7 +295,7 @@ def stage_table(src: sqlite3.Connection, conn, spec: dict):
             conn.commit()
             return conn, n
         except Exception as exc:
-            if attempt == TABLE_ATTEMPTS:
+            if attempt == TABLE_ATTEMPTS or any(e in str(exc) for e in NO_RETRY_ERRORS):
                 raise
             print(f"  {spec['table']}: intento {attempt} falló ({exc}); reconectando", flush=True)
             time.sleep(10 * attempt)
@@ -304,13 +336,8 @@ def run(sqlite_path: str, dry_run: bool, only: Optional[set] = None) -> int:
         print(f"OK: {len(tables)} tablas, {total} filas (run {run_id})")
         return 0
     except Exception as exc:  # se registra y se propaga el código de salida
-        try:
-            conn.rollback()
-        except Exception:
-            conn = _open(conn)
-        sql(conn, "UPDATE dbo.snapshot_runs SET finished_utc=SYSUTCDATETIME(), "
-                  "status='error', error=%s WHERE id=%s", (str(exc)[:4000], run_id), commit=True)
         print(f"ERROR: {exc}", file=sys.stderr)
+        conn = _record_failure(conn, run_id, exc)
         return 1
     finally:
         conn.close()

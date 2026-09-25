@@ -117,7 +117,7 @@ def _load_config(db: sqlite3.Connection):
         r["corredor"]: {"cedis": r["cedis"], "remate": r["sucursal_remate"]}
         for r in db.execute("SELECT * FROM remate_rutas_gam").fetchall()
     }
-    plazas = [r["nombre"] for r in db.execute("SELECT nombre FROM remate_plazas_excepcion").fetchall()]
+    plazas = [r["nombre"] for r in db.execute("SELECT nombre FROM remate_plazas_excepcion ORDER BY nombre").fetchall()]
     return escalas, rutas, plazas
 
 
@@ -236,7 +236,7 @@ def detectar_remates(
             JOIN materiales m ON m.material_id = i.material_id
             JOIN sucursales s ON s.plant = i.plant
             WHERE {where_sql}
-            ORDER BY (i.cajas_remanentes * m.precio_venta) DESC""",
+            ORDER BY (i.cajas_remanentes * m.precio_venta) DESC, i.material_id, i.plant""",
         params,
     ).fetchall()
 

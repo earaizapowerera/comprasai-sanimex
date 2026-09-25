@@ -75,6 +75,9 @@ def listar_pendientes(estado: str = Query("pendiente"), db: sqlite3.Connection =
         return {"items": rows}
 
     rows = db.execute(
+        # Un traslado_ref se genera por ruta: sus renglones comparten
+        # origen/destino, así que MIN() da ese valor y es SQL estándar (SQL
+        # Server no acepta columnas sin agregar fuera del GROUP BY).
         """SELECT p.traslado_ref, MIN(p.origen_plant) AS origen_plant, MIN(p.destino_plant) AS destino_plant,
                   MIN(so.nombre) AS origen_nombre, MIN(sd.nombre) AS destino_nombre,
                   SUM(p.cajas) AS cajas, COUNT(*) AS items, MIN(p.posteado_en) AS posteado_en

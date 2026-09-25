@@ -15,6 +15,7 @@ swap diario del snapshot (data/load_sqlserver.py) reemplaza `dbo`.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -38,6 +39,14 @@ def enabled() -> bool:
 _LIMIT_OFFSET = re.compile(r"\bLIMIT\s+(\?|\d+|:\w+)\s+OFFSET\s+(\?|\d+|:\w+)\s*;?\s*$",
                            re.IGNORECASE)
 _LIMIT = re.compile(r"\bLIMIT\s+(\?|\d+|:\w+)\s*;?\s*$", re.IGNORECASE)
+# SQLite: LIKE ignora mayúsculas (ASCII). El texto se guarda en colación
+# binaria, así que LIKE se evalúa explícitamente en CI_AS.
+_LIKE = re.compile(r"([\w.\]\[]+)\s+LIKE\b", re.IGNORECASE)
+LIKE_COLLATION = "Latin1_General_100_CI_AS"
+
+# LIMIT dentro de un subquery/CTE (sin paréntesis internos) -> TOP n.
+_SUBQUERY_LIMIT = re.compile(r"\(\s*SELECT\s+(DISTINCT\s+)?([^()]*?)\s+LIMIT\s+(\d+)\s*\)",
+                             re.IGNORECASE)
 _NAMED = re.compile(r"(?<!:):([A-Za-z_]\w*)")
 _PRAGMA_TABLE_INFO = re.compile(r"^\s*PRAGMA\s+table_info\s*\(\s*['\"]?(\w+)['\"]?\s*\)\s*$",
                                 re.IGNORECASE)
@@ -82,6 +91,46 @@ def _placeholders(sql: str) -> str:
     return "".join(out)
 
 
+# SQL Server acepta máx. 2100 parámetros por request; los motores arman
+# `IN (?,?,...)` con miles de materiales. Arriba de este umbral la lista viaja
+# como UN parámetro JSON y se abre con OPENJSON (sigue parametrizado).
+_IN_LIST = re.compile(r"\bIN\s*\(\s*\?(?:\s*,\s*\?)*\s*\)", re.IGNORECASE)
+IN_LIST_MAX = 100
+
+
+def _collapse_in_lists(sql: str, params: Any) -> tuple[str, Any]:
+    if not isinstance(params, (list, tuple)) or len(params) <= IN_LIST_MAX:
+        return sql, params
+    params, out_sql, out_params, idx = list(params), [], [], 0
+    for is_lit, text in _split_literals(sql):
+        if is_lit:
+            out_sql.append(text)
+            continue
+        pos = 0
+        for m in _IN_LIST.finditer(text):
+            before = text[pos:m.start()]
+            n_before = before.count("?")
+            out_params += params[idx:idx + n_before]
+            idx += n_before
+            n = m.group(0).count("?")
+            values = params[idx:idx + n]
+            idx += n
+            if n <= IN_LIST_MAX:
+                out_sql.append(before + m.group(0))
+                out_params += values
+            else:
+                numeric = all(isinstance(v, int) and not isinstance(v, bool) for v in values)
+                col = "BIGINT" if numeric else "NVARCHAR(450)"
+                out_sql.append(before + f"IN (SELECT v FROM OPENJSON(?) WITH (v {col} '$'))")
+                out_params.append(json.dumps(values, default=str))
+            pos = m.end()
+        rest = text[pos:]
+        out_params += params[idx:idx + rest.count("?")]
+        idx += rest.count("?")
+        out_sql.append(rest)
+    return "".join(out_sql), out_params
+
+
 def translate(sql: str, params: Any) -> tuple[Optional[str], Any]:
     """SQLite -> T-SQL. Devuelve (None, _) si la sentencia es un no-op."""
     m = _PRAGMA_TABLE_INFO.match(sql)
@@ -94,6 +143,9 @@ def translate(sql: str, params: Any) -> tuple[Optional[str], Any]:
         # Esquema de configuración provisionado por sqlserver_app_schema.sql.
         return None, params
     sql = _SQLITE_MASTER.sub("FROM sys.objects WHERE type IN ('U', 'SN')", sql)
+    sql, params = _collapse_in_lists(sql, params)
+    sql = _LIKE.sub(lambda m: f"{m.group(1)} COLLATE {LIKE_COLLATION} LIKE", sql)
+    sql = _SUBQUERY_LIMIT.sub(lambda m: f"(SELECT {m.group(1) or ''}TOP {m.group(3)} {m.group(2)})", sql)
 
     m = _LIMIT_OFFSET.search(sql)
     if m:
