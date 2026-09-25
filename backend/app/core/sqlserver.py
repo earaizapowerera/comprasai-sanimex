@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any, Iterator, Optional, Sequence
 
 logger = logging.getLogger("comprasai.sqlserver")
+# pytds registra cada sentencia en INFO: ruido en producción.
+logging.getLogger("pytds").setLevel(logging.WARNING)
 
 APP_SCHEMA_SQL = Path(__file__).with_name("sqlserver_app_schema.sql")
 
