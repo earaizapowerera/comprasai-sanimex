@@ -26,6 +26,7 @@ from app.routers import agent as agent_router
 from app.core import sucursal_compra
 from app.routers import engines_status, inventarios, kpis, materiales, semaforo, sucursales, ventas
 from app.routers import saldo_actual as saldo_actual_router
+from app.routers import articulo_vivo as articulo_vivo_router
 from app.routers import sucursal_compra as sucursal_compra_router
 from app.routers.engines import balanceos as engine_balanceos
 from app.routers.engines import chat_agente
@@ -108,6 +109,7 @@ app.include_router(sucursales.router)
 app.include_router(sucursal_compra_router.router)
 app.include_router(inventarios.router)
 app.include_router(saldo_actual_router.router)  # ruta operativa en vivo (HANA), no analítica
+app.include_router(articulo_vivo_router.router)  # abrir un artículo = HANA en vivo (292300)
 app.include_router(kpis.router)
 app.include_router(ventas.router)
 app.include_router(engines_status.router)

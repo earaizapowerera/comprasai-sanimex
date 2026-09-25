@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import FuenteBadge from "../../components/FuenteBadge.jsx";
 import { api } from "../../lib/api.js";
 import { Metric } from "./BalanceosUi.jsx";
 import { fmtDate, fmtInt } from "./balanceosFormat.js";
@@ -40,6 +41,7 @@ export default function BackorderModal({ materialId, row, onClose }) {
           Backorder de compra — {row.nombre} ({row.plant})
         </h3>
         {loading && <p className="caption text-tertiary">Cargando…</p>}
+        {data?.fuente && <FuenteBadge fuente={data.fuente} />}
         {error && (
           <p className="footnote" style={{ color: "var(--danger-text)" }}>
             {error}

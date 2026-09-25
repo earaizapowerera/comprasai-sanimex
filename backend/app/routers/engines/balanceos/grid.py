@@ -9,10 +9,12 @@ from typing import Optional
 
 from fastapi import Depends, Query
 
+from app.core import articulo_vivo
 from app.core.db import get_db
 from app.routers.engines.sugeridos import calc_cobertura_meses, calc_m2_a_cajas, _tabla_existe
 from app.routers.semaforo import _fecha_pedido_simulada
 
+from . import vivo as balanceos_vivo
 from .constantes import DEFAULT_OBJETIVO_MESES, _now
 from .persistencia import (
     _descartes_activos,
@@ -134,13 +136,19 @@ def _fila_grid(material_id: str, linea: dict, compra: dict, trigger, descartado:
     }
 
 
-def _compute_grid1(db: sqlite3.Connection, material_id: str, corredor: Optional[str] = None, hoy: Optional[date] = None) -> list[dict]:
+def _compute_grid1(db: sqlite3.Connection, material_id: str, corredor: Optional[str] = None,
+                   hoy: Optional[date] = None, vivo: Optional[dict] = None) -> list[dict]:
     """Grid 1 (waykee 292187): una fila por ubicación para el material
     seleccionado, con el trigger evaluado por fila. "Zona" == corredor (el
     ticket no define zona aparte; Balanceos ya trabaja "dentro de corredor"
-    desde RN-02, así que se reusa esa agrupación -- supuesto documentado)."""
+    desde RN-02, así que se reusa esa agrupación -- supuesto documentado).
+    `vivo` (292300): lectura de HANA del artículo; si respondió, su posición
+    y sus OCs reemplazan a las del snapshot (ver balanceos/vivo.py)."""
     hoy = hoy or datetime.now(timezone.utc).date()
     rows = _filas_material(db, material_id)
+    en_vivo = bool(vivo and vivo["fuente"]["live"])
+    if en_vivo:
+        rows = _sin_plantas_fuera_de_universo(db, balanceos_vivo.sobreponer(db, material_id, rows, vivo))
     if not rows:
         return []
 
@@ -148,7 +156,7 @@ def _compute_grid1(db: sqlite3.Connection, material_id: str, corredor: Optional[
     serie = _serie_cajas_por_plant(db, material_id, m2_por_caja)
     umbral_dias = _umbral_dias_pedido(db)
     descartes = _descartes_activos(db, material_id, hoy)
-    docs_compra = _docs_compra(db, material_id)
+    docs_compra = vivo["pedidos"] if en_vivo else _docs_compra(db, material_id)
     lineas = _lineas(rows, serie)
 
     resultado = []
@@ -176,7 +184,8 @@ def grid1(
     corredor: Optional[str] = Query(None),
     db: sqlite3.Connection = Depends(get_db),
 ):
-    return {"items": _compute_grid1(db, material_id, corredor), "generado": _now()}
+    vivo = balanceos_vivo.leer(db, material_id)
+    return {"items": _compute_grid1(db, material_id, corredor, vivo=vivo), "generado": _now(), "fuente": vivo["fuente"]}
 
 
 def grid1_backorder_detalle(
@@ -189,7 +198,12 @@ def grid1_backorder_detalle(
     existe en este dataset (confirmado: ausente en schema.sql / "no such
     table"), solo el agregado inventarios.pedidos_abiertos. Se degrada igual
     que GET /pedidos-detalle en sugeridos.py: disponible=False con el
-    agregado visible, hasta que T1 entregue el detalle real por OC."""
+    agregado visible, hasta que T1 entregue el detalle real por OC.
+    292300: primero HANA en vivo; lo anterior queda como respaldo."""
+    vivo = articulo_vivo.leer(db, material_id, plant, partes=("pedidos",))
+    if vivo["fuente"]["live"]:
+        docs = sorted(vivo["pedidos"], key=lambda d: d["fecha_po"] or "")
+        return {"disponible": True, "documentos": docs, "fuente": vivo["fuente"]}
     if _tabla_existe(db, "pedidos_compra_detalle"):
         docs = db.execute(
             """SELECT po, posicion, proveedor, cantidad_pendiente, fecha_po, fecha_entrega_estimada
@@ -197,7 +211,7 @@ def grid1_backorder_detalle(
                ORDER BY fecha_po""",
             (material_id, plant),
         ).fetchall()
-        return {"disponible": True, "documentos": docs}
+        return {"disponible": True, "documentos": docs, "fuente": vivo["fuente"]}
 
     row = db.execute(
         "SELECT pedidos_abiertos FROM inventarios WHERE material_id = ? AND plant = ?",
@@ -212,6 +226,7 @@ def grid1_backorder_detalle(
         "pedidosAbiertosCajas": pedidos_abiertos,
         "fechaPedidoSimulada": fecha_simulada.isoformat() if fecha_simulada else None,
         "documentos": [],
+        "fuente": vivo["fuente"],
     }
 
 
@@ -224,7 +239,7 @@ def sugerencia_cantidad(
     """Prellenado del modal "Agregar" de Grid 1 -- ver
     calc_cantidad_sugerida_balanceo. La cantidad SIEMPRE es editable a mano
     en el modal; esto solo sugiere un punto de partida con su fuente visible."""
-    grid = _compute_grid1(db, material_id)
+    grid = _compute_grid1(db, material_id, vivo=balanceos_vivo.leer(db, material_id))
     origen = next((g for g in grid if g["plant"] == origen_plant), None)
     destino = next((g for g in grid if g["plant"] == destino_plant), None)
     if origen is None or destino is None:

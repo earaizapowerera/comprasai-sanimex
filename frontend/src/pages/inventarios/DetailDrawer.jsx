@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import PosicionVivo from '../../components/PosicionVivo.jsx'
 import { calcularForecast, fetchMaterialDetail, fetchVentasSerie } from '../../lib/inventariosData.js'
 
 // ---------------------------------------------------------------------------
@@ -59,6 +60,7 @@ export default function DetailDrawer({ material_id, plant, onClose }) {
           </div>
         ) : material && (
           <div className="pi-drawer__body">
+            <PosicionVivo material_id={material_id} plant={plant} />
             <div className="pi-drawer__metrics">
               <MiniMetric label="Proveedor" value={material.proveedor ?? '—'} />
               <MiniMetric label="Lead time" value={material.lead_time_dias ? `${material.lead_time_dias} días` : '—'} />

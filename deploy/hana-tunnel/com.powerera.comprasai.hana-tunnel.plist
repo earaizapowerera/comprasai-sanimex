@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Tunel inverso HANA CAR -> VM de prod ComprasAI (waykee 292300). Instalar:
+     cp deploy/hana-tunnel/com.powerera.comprasai.hana-tunnel.plist ~/Library/LaunchAgents/
+     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.powerera.comprasai.hana-tunnel.plist
+     KeepAlive: launchd lo relanza si se cae (VPN, sleep, red). ThrottleInterval evita
+     reintentos en rafaga mientras no hay VPN. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.powerera.comprasai.hana-tunnel</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/enrique/comprasai-sanimex-worktrees/cron-main/deploy/hana-tunnel/hana_tunnel.sh</string>
+    </array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>ThrottleInterval</key><integer>30</integer>
+    <key>StandardOutPath</key><string>/Users/enrique/comprasai-pipeline/hana-tunnel.log</string>
+    <key>StandardErrorPath</key><string>/Users/enrique/comprasai-pipeline/hana-tunnel.log</string>
+</dict>
+</plist>
