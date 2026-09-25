@@ -29,6 +29,7 @@ from typing import Annotated, Callable, Iterable, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
+from app.core import sqlserver
 from app.core.db import get_db
 
 router = APIRouter(prefix="/api/engines/sugeridos/lotes", tags=["engines:sugeridos:lotes"])
@@ -91,7 +92,8 @@ def init_tables(db: sqlite3.Connection) -> None:
     """Crea las tablas UNA vez al arranque (fuera del hot path, mismo patrón que
     remates/balanceos). El seed de ejemplo solo corre cuando la tabla nace, para
     no resucitarlo si el usuario borra todos sus lotes."""
-    nueva = not _tabla_existe(db, "lotes_compra")
+    # En SQL Server la tabla nace en ensure_app_schema (antes de este punto).
+    nueva = not _tabla_existe(db, "lotes_compra") or sqlserver.born_this_run("lotes_compra")
     db.execute(
         """CREATE TABLE IF NOT EXISTS lotes_compra (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,

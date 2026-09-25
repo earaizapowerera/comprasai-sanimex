@@ -37,7 +37,7 @@ def lista_sugeridos(
     rows = [
         dict(r)
         for r in db.execute(
-            f"""SELECT * FROM sugeridos_generados {where} ORDER BY actualizado DESC""",
+            f"""SELECT * FROM sugeridos_generados {where} ORDER BY actualizado DESC, material_id, plant""",
             params,
         ).fetchall()
     ]

@@ -25,6 +25,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional
 
+from app.core.db import upsert
+
 COMPRA_DIRECTA = "COMPRA_DIRECTA"
 COMPRA_ESPORADICA = "COMPRA_ESPORADICA"
 NO_COMPRA = "NO_COMPRA"
@@ -93,7 +95,7 @@ def get_umbral(db: sqlite3.Connection) -> int:
 
 
 def set_umbral(db: sqlite3.Connection, umbral: int) -> None:
-    db.execute("INSERT OR REPLACE INTO sucursal_compra_config (clave, valor) VALUES ('umbral_oc_anual', ?)", (str(umbral),))
+    upsert(db, "sucursal_compra_config", {"clave": "umbral_oc_anual"}, {"valor": str(umbral)})
     db.commit()
 
 

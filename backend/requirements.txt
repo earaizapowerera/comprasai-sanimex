@@ -6,3 +6,5 @@ anthropic==1.0.0
 numpy==2.2.6
 pyxlsb==1.0.10
 httpx==0.28.1
+python-tds==1.17.1
+hdbcli==2.30.27

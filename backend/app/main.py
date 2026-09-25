@@ -19,11 +19,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.core.agent_scope import AgentScopeMiddleware
+from app.core import sqlserver
 from app.core.config import AUTO_SEED_IF_MISSING, DB_PATH, FRONTEND_STATIC_DIR
 from app.core.db import enable_wal, get_connection, get_db
 from app.routers import agent as agent_router
 from app.core import sucursal_compra
 from app.routers import engines_status, inventarios, kpis, materiales, semaforo, sucursales, ventas
+from app.routers import saldo_actual as saldo_actual_router
 from app.routers import sucursal_compra as sucursal_compra_router
 from app.routers.engines import balanceos as engine_balanceos
 from app.routers.engines import chat_agente
@@ -56,6 +58,13 @@ app.add_middleware(AgentScopeMiddleware)
 
 @app.on_event("startup")
 def _ensure_dataset() -> None:
+    if sqlserver.enabled():
+        # El snapshot lo publica data/load_sqlserver.py; aquí solo se asegura
+        # el schema `app` (config/decisiones) que el swap diario no toca.
+        with get_connection() as conn:
+            sqlserver.ensure_app_schema(conn)
+        logger.info("Usando snapshot SQL Server (%s)", sqlserver.describe())
+        return
     if DB_PATH.exists():
         logger.info("Usando dataset existente en %s", DB_PATH)
         return
@@ -86,6 +95,10 @@ def _init_engine_tables() -> None:
 
 @app.get("/api/health", tags=["health"])
 def health():
+    if sqlserver.enabled():
+        with get_connection() as conn:
+            return {"status": "ok", "db_path": sqlserver.describe(), "db_exists": True,
+                    "snapshot": sqlserver.last_snapshot(conn)}
     return {"status": "ok", "db_path": str(DB_PATH), "db_exists": DB_PATH.exists()}
 
 
@@ -94,6 +107,7 @@ app.include_router(materiales.router)
 app.include_router(sucursales.router)
 app.include_router(sucursal_compra_router.router)
 app.include_router(inventarios.router)
+app.include_router(saldo_actual_router.router)  # ruta operativa en vivo (HANA), no analítica
 app.include_router(kpis.router)
 app.include_router(ventas.router)
 app.include_router(engines_status.router)

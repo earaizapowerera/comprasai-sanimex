@@ -31,16 +31,21 @@ class ContextoDemanda:
 
     def __init__(self, db: sqlite3.Connection, candidatos: list, material_ids: list[str], placeholders: str):
         self._cargar_ventas(db, candidatos, material_ids, placeholders)
+        self._resolver_meses_display(db)
+        # T28 (waykee 291765): estrategia de Promedio 3 resuelta UNA vez por
+        # request (no por línea) -- ver mensaje puente waykee 290066->291765.
+        # Se resuelve ANTES del kardex: las salidas diarias solo se cargan en
+        # modo "kardex" (con v7 el modo es "stats" y nunca se leen).
+        self.modo_promedio3 = _modo_promedio3(db)
         self._cargar_kardex(db, material_ids, placeholders)
         # T29 (punto 3, v7): tabla oficial dias_sin_inventario_mensual -- si
         # existe, manda sobre el cálculo local mes a mes (ver _fusionar_...).
         self.tabla_dsi = _cargar_dias_sin_inventario_tabla(db, material_ids, placeholders)
-        # T28 (waykee 291765): estrategia de Promedio 3 resuelta UNA vez por
-        # request (no por línea) -- ver mensaje puente waykee 290066->291765.
-        self.modo_promedio3 = _modo_promedio3(db)
         self.stats_por_linea_mes: dict = {}
         if self.modo_promedio3 == "stats":
             self.stats_por_linea_mes = _cargar_stats_mensuales(db, material_ids, placeholders)
+
+    def _resolver_meses_display(self, db: sqlite3.Connection) -> None:
         # T27 (waykee 291745): serie de EXHIBICIÓN para el popup de decisión --
         # últimos MESES_SERIE_DISPLAY meses calendario contiguos, rellenando con 0
         # los meses sin venta (a diferencia de `serie`, que solo trae meses con
@@ -84,18 +89,33 @@ class ContextoDemanda:
         self.salidas_por_linea: dict[tuple[str, str], list[tuple[str, float]]] = {}
         if not self.kardex_disponible:
             return
+        # Los dos consumidores (_saldos_fin_mes y calc_dias_sin_inventario_por_mes)
+        # solo evalúan meses_display y arrastran el último saldo previo. Basta
+        # traer la ventana + ese último movimiento anterior por línea: mismo
+        # resultado con ~1/5 de las filas (el historial completo eran ~730k
+        # filas por request, y en SQL Server el costo es transferirlas).
+        inicio = f"{self.meses_display[0]}-01"
         kardex_rows = db.execute(
             f"""SELECT material_id, plant, fecha, saldo_fin_dia
                 FROM kardex_diario
-                WHERE material_id IN ({placeholders})
+                WHERE material_id IN ({placeholders}) AND fecha >= ?
+                UNION ALL
+                SELECT k.material_id, k.plant, k.fecha, k.saldo_fin_dia
+                FROM kardex_diario k
+                JOIN (SELECT material_id, plant, MAX(fecha) AS fecha
+                      FROM kardex_diario
+                      WHERE material_id IN ({placeholders}) AND fecha < ?
+                      GROUP BY material_id, plant) u
+                  ON u.material_id = k.material_id AND u.plant = k.plant AND u.fecha = k.fecha
                 ORDER BY material_id, plant, fecha""",
-            material_ids,
+            [*material_ids, inicio, *material_ids, inicio],
         ).fetchall()
         for kr in kardex_rows:
             self.kardex_por_linea.setdefault((kr["material_id"], kr["plant"]), []).append(
                 (kr["fecha"], kr["saldo_fin_dia"])
             )
-        self.salidas_por_linea = _cargar_salidas_diarias(db, material_ids, placeholders)
+        if self.modo_promedio3 == "kardex":
+            self.salidas_por_linea = _cargar_salidas_diarias(db, material_ids, placeholders)
 
     def factor_piezas_a_m2_linea(self, material_id: str, plant: str) -> float:
         """Factor piezas POS -> m2 de esta línea (ver calc_factor_m2_por_pieza),

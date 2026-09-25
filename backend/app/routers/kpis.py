@@ -152,7 +152,7 @@ def list_compras_urgentes(
         LEFT JOIN proveedores p ON p.material_id = i.material_id
         WHERE d.demanda_prom >= :eps
           AND ((i.disponible + i.transito - i.comprometido) / d.demanda_prom) < COALESCE(c.meses_objetivo, 2.0)
-        ORDER BY cobertura_actual_meses ASC
+        ORDER BY cobertura_actual_meses ASC, i.material_id, i.plant
         LIMIT :limit
     """
     rows = db.execute(sql, {"eps": EPS_DEMANDA, "limit": limit}).fetchall()
