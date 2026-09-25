@@ -34,6 +34,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 import sqlite3
 
+from app.core import sucursal_compra
 from app.core.constants import EPS_DEMANDA
 from app.core.db import get_db
 from app.routers.engines import lotes_compra
@@ -821,6 +822,18 @@ def _ajuste_pico_mes(
 # Endpoints
 # ---------------------------------------------------------------------------
 
+def _filtrar_sucursales_que_compran(db: sqlite3.Connection, candidatos: list[dict]) -> tuple[list[dict], dict]:
+    """Quita las líneas de sucursales que no compran directo (catálogo
+    sucursal_compra). Catálogo vacío -> sin filtro."""
+    excluidas = sucursal_compra.plantas_sin_compra(db)
+    if not excluidas:
+        return candidatos, {"activo": False, "lineas_excluidas": 0, "sucursales_excluidas": 0}
+    filtrados = [c for c in candidatos if c["plant"] not in excluidas]
+    afectadas = {c["plant"] for c in candidatos} & excluidas
+    return filtrados, {"activo": True, "lineas_excluidas": len(candidatos) - len(filtrados),
+                       "sucursales_excluidas": len(afectadas)}
+
+
 @router.get("/opciones")
 def opciones(db: sqlite3.Connection = Depends(get_db)):
     """Catálogos para los combobox searchable del filtro (familia/proveedor/corredor)."""
@@ -918,8 +931,15 @@ def generar_sugeridos(
         material_ids = sorted({r["material_id"] for r in candidatos})
         placeholders = ",".join("?" * len(material_ids))
 
+    # Waykee 292252: solo sucursales de COMPRA_DIRECTA generan sugeridos de
+    # compra; esporádicas/no-compra se abastecen por traslado (Balanceos).
+    candidatos, filtro_sucursal = _filtrar_sucursales_que_compran(db, candidatos)
+    material_ids = sorted({r["material_id"] for r in candidatos})
+    placeholders = ",".join("?" * len(material_ids))
+
     if not candidatos:
-        return {"total": 0, "page": page, "page_size": page_size, "items": [], "generado": _now(), "lote": filtro_lote}
+        return {"total": 0, "page": page, "page_size": page_size, "items": [], "generado": _now(),
+                "lote": filtro_lote, "sucursal_compra": filtro_sucursal}
     ventas_rows = db.execute(
         f"""SELECT material_id, plant, anio_mes, SUM(cantidad_m2) AS m2
             FROM ventas_mensuales
@@ -1337,6 +1357,7 @@ def generar_sugeridos(
         "items": pagina,
         "generado": now,
         "lote": filtro_lote,
+        "sucursal_compra": filtro_sucursal,
     }
 
 

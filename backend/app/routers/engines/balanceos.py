@@ -18,6 +18,7 @@ from typing import Optional
 from fastapi import APIRouter, Body, Depends, Query
 import sqlite3
 
+from app.core import sucursal_compra
 from app.core.db import get_db
 from app.routers.engines.sugeridos import calc_cobertura_meses, calc_m2_a_cajas, _tabla_existe
 from app.routers.semaforo import _fecha_pedido_simulada
@@ -346,6 +347,13 @@ def calc_cantidad_sugerida_balanceo(
     }
 
 
+def _sin_plantas_fuera_de_universo(db: sqlite3.Connection, filas: list[dict]) -> list[dict]:
+    """292252: sucursales SIN_OPERACION (sin OCs ni inventario) no participan
+    en Balanceos. Esporádicas y no-compra sí: su abasto ES el traslado."""
+    fuera = sucursal_compra.plantas_sin_operacion(db)
+    return [f for f in filas if f["plant"] not in fuera] if fuera else filas
+
+
 def _compute_all_propuestas(db: sqlite3.Connection, costo_por_corredor: dict) -> list[dict]:
     """Cómputo completo (todos los corredores, sin límite) — CPU-bound,
     pensado para llamarse una vez y cachearse (ver _cache)."""
@@ -360,6 +368,7 @@ def _compute_all_propuestas(db: sqlite3.Connection, costo_por_corredor: dict) ->
             LEFT JOIN coberturas_objetivo c ON c.material_id = i.material_id
             WHERE s.corredor IS NOT NULL"""
     ).fetchall()
+    candidatos = _sin_plantas_fuera_de_universo(db, candidatos)
 
     if not candidatos:
         return []
@@ -500,6 +509,7 @@ def recalcular_propuestas(db: sqlite3.Connection) -> dict:
     de cargar datos nuevos, y (b) el botón "Recalcular ahora" de la UI.
     No hay scheduler propio aquí a propósito: el disparo lo da el job de
     snapshot, que es quien sabe cuándo cambiaron los datos."""
+    sucursal_compra.recalcular(db)  # 292252: la clase de sucursal define el universo
     propuestas = _get_cached_propuestas(db, force=True)
     return {
         "total": len(propuestas),
@@ -661,6 +671,7 @@ def _compute_grid1(db: sqlite3.Connection, material_id: str, corredor: Optional[
            WHERE i.material_id = ?""",
         (DEFAULT_OBJETIVO_MESES, material_id),
     ).fetchall()
+    rows = _sin_plantas_fuera_de_universo(db, rows)
     if not rows:
         return []
 
