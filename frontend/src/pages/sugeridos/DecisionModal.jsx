@@ -203,7 +203,7 @@ export default function DecisionModal({ row, onClose, onDecidir }) {
 
         {inv.sobrevendido && (
           <div className="footnote" style={{ marginTop: 10, color: "var(--danger-text)", fontWeight: "var(--fw-semibold)" }}>
-            El backorder traslado ({fmtInt.format(inv.comprometido || 0)} caj) excede el inventario + tránsito disponible por{" "}
+            Al generar el sugerido, el backorder traslado ({fmtInt.format(inv.comprometido || 0)} caj) excedía el inventario + tránsito disponible por{" "}
             {fmtInt.format(Math.abs(inv.disponible_neto))} cajas.
           </div>
         )}
