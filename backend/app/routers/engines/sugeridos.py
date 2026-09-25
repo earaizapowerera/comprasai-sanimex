@@ -27,8 +27,8 @@ import io
 import json
 import math
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import date, datetime, timezone
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -36,6 +36,7 @@ import sqlite3
 
 from app.core.constants import EPS_DEMANDA
 from app.core.db import get_db
+from app.routers.engines import lotes_compra
 
 router = APIRouter(prefix="/api/engines/sugeridos", tags=["engines:sugeridos"])
 
@@ -839,11 +840,17 @@ def generar_sugeridos(
     solo_criticos: bool = Query(False, description="Solo líneas con cobertura actual = 0"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
+    fecha: Annotated[Optional[date], Query(description="Fecha de compra para resolver el Lote de Compra vigente (default: hoy UTC)")] = None,
     db: sqlite3.Connection = Depends(get_db),
 ):
     """Clic 1 del flujo estrella: corre C1 (reglas) + C2 (forecast simple) +
     C3 (explicación) y persiste cada línea como 'propuesto'."""
     _ensure_tables(db)
+    # Waykee 292251: Lote de Compra vigente a `fecha` -> solo entran materiales
+    # cuya categoría del mes de `fecha` esté habilitada. Sin lote -> sin filtro.
+    fecha_iso = (fecha or datetime.now(timezone.utc).date()).isoformat()
+    filtro_lote = lotes_compra.resolver_filtro(db, fecha_iso)
+    habilitadas = filtro_lote.pop("_habilitadas")
 
     where = ["1=1"]
     params: list = []
@@ -894,11 +901,25 @@ def generar_sugeridos(
         params,
     ).fetchall()
 
-    if not candidatos:
-        return {"total": 0, "page": page, "page_size": page_size, "items": [], "generado": _now()}
-
     material_ids = sorted({r["material_id"] for r in candidatos})
     placeholders = ",".join("?" * len(material_ids))
+    # T29 (punto 5): categoría mensual por material (Excel hoy, SAP/HANA mañana).
+    # Se carga antes del filtro de lote (292251), que la necesita.
+    tabla_categorias = _cargar_categorias_tabla(db, material_ids, placeholders)
+
+    if habilitadas is not None:
+        mes_lote = fecha_iso[:7]
+        antes = len(candidatos)
+        candidatos = lotes_compra.filtrar_por_lote(
+            candidatos, habilitadas,
+            lambda mid: (_categoria_para_linea(tabla_categorias, mid, mes_lote) or {}).get("valor"),
+        )
+        filtro_lote["lineas_excluidas"] = antes - len(candidatos)
+        material_ids = sorted({r["material_id"] for r in candidatos})
+        placeholders = ",".join("?" * len(material_ids))
+
+    if not candidatos:
+        return {"total": 0, "page": page, "page_size": page_size, "items": [], "generado": _now(), "lote": filtro_lote}
     ventas_rows = db.execute(
         f"""SELECT material_id, plant, anio_mes, SUM(cantidad_m2) AS m2
             FROM ventas_mensuales
@@ -946,9 +967,6 @@ def generar_sugeridos(
     # T29 (punto 3, v7): tabla oficial dias_sin_inventario_mensual -- si
     # existe, manda sobre el cálculo local mes a mes (ver _fusionar_...).
     tabla_dsi = _cargar_dias_sin_inventario_tabla(db, material_ids, placeholders)
-
-    # T29 (punto 5): categoría mensual por material (Excel hoy, SAP/HANA mañana).
-    tabla_categorias = _cargar_categorias_tabla(db, material_ids, placeholders)
 
     # T28 (waykee 291765): estrategia de Promedio 3 resuelta UNA vez por
     # request (no por línea) -- ver mensaje puente waykee 290066->291765.
@@ -1318,6 +1336,7 @@ def generar_sugeridos(
         "page_size": page_size,
         "items": pagina,
         "generado": now,
+        "lote": filtro_lote,
     }
 
 

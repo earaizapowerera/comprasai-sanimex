@@ -1,10 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api.js";
+import LotesCompra from "./sugeridos/LotesCompra.jsx";
 
 const ETAPAS = [
   { key: "C1", label: "Reglas de negocio", detail: "Cobertura, MOQ, transferencias (RN-01/RN-02)" },
   { key: "C2", label: "Forecast", detail: "Demanda proyectada y tendencia" },
   { key: "C3", label: "Explicación", detail: "Razonamiento en lenguaje natural" },
+];
+
+// Waykee 292251: vistas de primer nivel de la pantalla.
+const VISTAS = [
+  { key: "sugeridos", label: "Sugeridos" },
+  { key: "lotes", label: "Lotes de Compra" },
 ];
 
 const TABS = [
@@ -661,6 +668,15 @@ export default function Sugeridos() {
   const [approve, setApprove] = useState(null); // { rows, accion }
   const [toast, setToast] = useState(null);
   const [hasGenerated, setHasGenerated] = useState(false);
+  const [vista, setVista] = useState("sugeridos");
+  const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
+  const [loteInfo, setLoteInfo] = useState(null);
+
+  // Waykee 292251: lote vigente a la fecha elegida (informativo antes de generar).
+  useEffect(() => {
+    if (vista !== "sugeridos" || !fecha) return;
+    api.sugeridos.lotes.vigentes(fecha).then(setLoteInfo).catch(() => setLoteInfo(null));
+  }, [fecha, vista]);
 
   useEffect(() => {
     api.sugeridos.opciones().then(setOpciones).catch(() => {});
@@ -702,7 +718,8 @@ export default function Sugeridos() {
       setStage(1);
       await sleep(420);
       setStage(2);
-      const res = await api.sugeridos.generar(filtros);
+      const res = await api.sugeridos.generar({ ...filtros, fecha });
+      if (res.lote) setLoteInfo(res.lote);
       await sleep(280);
       setRows(res.items || []);
       setHasGenerated(true);
@@ -711,7 +728,9 @@ export default function Sugeridos() {
         kind: res.items?.length ? "success" : "neutral",
         text: res.items?.length
           ? `${res.items.length} línea${res.items.length === 1 ? "" : "s"} generada${res.items.length === 1 ? "" : "s"}.`
-          : "No hay líneas por debajo de su cobertura objetivo con estos filtros.",
+          : res.lote?.aplicado
+            ? `No hay líneas por debajo de su cobertura objetivo en las clasificaciones del lote (${res.lote.clasificaciones.join(", ") || "ninguna"}).`
+            : "No hay líneas por debajo de su cobertura objetivo con estos filtros.",
       });
     } catch (e) {
       setToast({ kind: "danger", text: e.message });
@@ -768,6 +787,32 @@ export default function Sugeridos() {
         </a>
       </div>
 
+      <div style={{ display: "flex", gap: 8, marginBottom: 20 }} role="tablist">
+        {VISTAS.map((v) => (
+          <button
+            key={v.key}
+            role="tab"
+            aria-selected={vista === v.key}
+            data-vista={v.key}
+            className={`btn ${vista === v.key ? "btn--primary" : "btn--secondary"}`}
+            onClick={() => setVista(v.key)}
+          >
+            {v.label}
+          </button>
+        ))}
+      </div>
+
+      {vista === "lotes" && toast && (
+        <div
+          className={`badge badge--${toast.kind === "danger" ? "danger" : toast.kind === "success" ? "success" : "neutral"}`}
+          style={{ marginBottom: 16, height: "auto", padding: "8px 14px", display: "block" }}
+        >
+          {toast.text}
+        </div>
+      )}
+      {vista === "lotes" && <LotesCompra onToast={setToast} />}
+
+      {vista === "sugeridos" && (<>
       <div className="card" style={{ marginBottom: 24 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: "var(--space-4)", alignItems: "end" }}>
           <div style={{ gridColumn: "span 3" }}>
@@ -776,15 +821,40 @@ export default function Sugeridos() {
           <div style={{ gridColumn: "span 3" }}>
             <Combobox label="Proveedor" value={filtros.proveedor} options={opciones.proveedores} onChange={(v) => setFiltros((f) => ({ ...f, proveedor: v }))} />
           </div>
-          <div style={{ gridColumn: "span 3" }}>
+          <div style={{ gridColumn: "span 2" }}>
             <Combobox label="Corredor" value={filtros.corredor} options={opciones.corredores} onChange={(v) => setFiltros((f) => ({ ...f, corredor: v }))} />
           </div>
-          <div style={{ gridColumn: "span 3" }}>
+          <div style={{ gridColumn: "span 2" }}>
+            <label className="footnote text-secondary" style={{ display: "block", marginBottom: 6 }}>Fecha de compra</label>
+            <input type="date" className="input" value={fecha} onChange={(e) => setFecha(e.target.value)} aria-label="Fecha de compra" />
+          </div>
+          <div style={{ gridColumn: "span 2" }}>
             <button className="btn btn--ai btn--lg" style={{ width: "100%" }} onClick={generar} disabled={generating}>
               {generating ? "Generando…" : "✨ Generar sugeridos"}
             </button>
           </div>
         </div>
+
+        {loteInfo && (
+          <div className="footnote" data-testid="lote-vigente" style={{ marginTop: 16, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            {loteInfo.aplicado ? (
+              <>
+                <span className="badge badge--accent">🗂 Lote vigente</span>
+                <span className="text-secondary">Solo clasificaciones:</span>
+                {loteInfo.clasificaciones.length
+                  ? loteInfo.clasificaciones.map((c) => <span key={c} className="badge badge--neutral">{c}</span>)
+                  : <span className="badge badge--warning">⚠ ninguna</span>}
+                <span className="caption text-tertiary">({loteInfo.lotes.map((l) => l.nombre).join(" · ")})</span>
+                {loteInfo.lineas_excluidas != null && (
+                  <span className="caption text-tertiary">· {fmtInt.format(loteInfo.lineas_excluidas)} líneas fuera de lote</span>
+                )}
+              </>
+            ) : (
+              <span className="text-secondary">Sin lote de compra vigente para esta fecha: se consideran todas las clasificaciones.</span>
+            )}
+            <button className="btn btn--ghost btn--sm" onClick={() => setVista("lotes")}>Configurar lotes →</button>
+          </div>
+        )}
 
         {generating && (
           <div style={{ display: "flex", gap: 12, marginTop: 20, flexWrap: "wrap" }}>
@@ -973,6 +1043,7 @@ export default function Sugeridos() {
         </div>
 
       </div>
+      </>)}
 
       {explainRow && (
         <DecisionModal

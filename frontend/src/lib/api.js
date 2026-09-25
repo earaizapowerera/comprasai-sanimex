@@ -48,6 +48,7 @@ async function apiMutate(method, path, { body, params } = {}) {
 
 export const apiPost = (path, opts) => apiMutate('POST', path, opts)
 export const apiPut = (path, opts) => apiMutate('PUT', path, opts)
+export const apiDelete = (path, opts) => apiMutate('DELETE', path, opts)
 
 // Namespace de la API del motor de Sugeridos de Compra (T9, C1/C2/C3).
 export const api = {
@@ -65,6 +66,15 @@ export const api = {
       apiGet('/engines/sugeridos/backorder-detalle', { material_id, plant }),
     pedidosDetalle: (material_id, plant) =>
       apiGet('/engines/sugeridos/pedidos-detalle', { material_id, plant }),
+    // Lotes de Compra (waykee 292251): clasificaciones habilitadas por rango de fechas.
+    lotes: {
+      lista: () => apiGet('/engines/sugeridos/lotes'),
+      clasificaciones: () => apiGet('/engines/sugeridos/lotes/clasificaciones'),
+      vigentes: (fecha) => apiGet('/engines/sugeridos/lotes/vigentes', { fecha }),
+      crear: (lote) => apiPost('/engines/sugeridos/lotes', { body: lote }),
+      actualizar: (id, cambios) => apiPut(`/engines/sugeridos/lotes/${id}`, { body: cambios }),
+      borrar: (id) => apiDelete(`/engines/sugeridos/lotes/${id}`),
+    },
   },
 
   // Namespace de materiales (búsqueda para el combobox de Grid 1 de Balanceos, T-292187).

@@ -26,6 +26,7 @@ from app.routers import engines_status, inventarios, kpis, materiales, semaforo,
 from app.routers.engines import balanceos as engine_balanceos
 from app.routers.engines import chat_agente
 from app.routers.engines import forecast as engine_forecast
+from app.routers.engines import lotes_compra as engine_lotes_compra
 from app.routers.engines import remates as engine_remates
 from app.routers.engines import sugeridos as engine_sugeridos
 
@@ -75,6 +76,7 @@ def _init_engine_tables() -> None:
     with get_connection() as conn:
         engine_remates.init_tables(conn)
         engine_balanceos.init_tables(conn)
+        engine_lotes_compra.init_tables(conn)  # 292251: tablas + seed PET de ejemplo
         engine_balanceos.warm_cache(conn)  # evita que el primer usuario pague el cómputo (~2-3s)
 
 
@@ -91,6 +93,7 @@ app.include_router(kpis.router)
 app.include_router(ventas.router)
 app.include_router(engines_status.router)
 app.include_router(chat_agente.router)
+app.include_router(engine_lotes_compra.router)  # antes que sugeridos: rutas /lotes más específicas
 app.include_router(engine_sugeridos.router)
 app.include_router(semaforo.router)
 app.include_router(engine_forecast.router)
