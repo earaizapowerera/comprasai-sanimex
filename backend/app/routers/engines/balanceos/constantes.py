@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-MESES_DEMANDA = 3
 DEFAULT_OBJETIVO_MESES = 2.0
 COSTO_CAJA_TRASLADO_DEFAULT = 20.0
 

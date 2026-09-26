@@ -8,9 +8,10 @@ import threading
 from datetime import datetime, timezone
 
 from app.core import sucursal_compra
-from app.routers.engines.sugeridos import calc_cobertura_meses, calc_m2_a_cajas
+from app.routers.engines.sugeridos import calc_cobertura_meses
 
-from .constantes import COSTO_CAJA_TRASLADO_DEFAULT, DEFAULT_OBJETIVO_MESES, MESES_DEMANDA
+from .constantes import COSTO_CAJA_TRASLADO_DEFAULT, DEFAULT_OBJETIVO_MESES
+from .consumo import consumo_linea, mes_actual_dataset, meses_ventana
 from .persistencia import _costo_traslado_por_corredor, _sin_plantas_fuera_de_universo
 
 # Cache en memoria del cómputo completo (todas las propuestas, sin filtro de
@@ -24,12 +25,26 @@ _cache_lock = threading.Lock()
 _cache: dict = {"propuestas": None, "costo_por_corredor_snapshot": None, "generado": None, "duracion_ms": None}
 
 
-def _demanda_promedio(serie: dict, key) -> float:
-    """Promedio de los últimos MESES_DEMANDA puntos (cajas) de la serie."""
-    puntos = serie.get(key, [])[-MESES_DEMANDA:]
-    if not puntos:
-        return 0.0
-    return sum(v for _, v in puntos) / len(puntos)
+def _serie_m2(db: sqlite3.Connection, meses: list[str], material_ids: list[str]) -> dict:
+    """{(material_id, plant): {anio_mes: m2}} solo para los meses de la
+    ventana de consumo (292247). Sin material_ids no filtra por material."""
+    ph_mes = ",".join("?" * len(meses))
+    filtro_mat = ""
+    params: list = list(meses)
+    if material_ids:
+        filtro_mat = f" AND material_id IN ({','.join('?' * len(material_ids))})"
+        params += material_ids
+    rows = db.execute(
+        f"""SELECT material_id, plant, anio_mes, SUM(cantidad_m2) AS m2
+            FROM ventas_mensuales
+            WHERE anio_mes IN ({ph_mes}){filtro_mat}
+            GROUP BY material_id, plant, anio_mes""",
+        params,
+    ).fetchall()
+    serie: dict = {}
+    for r in rows:
+        serie.setdefault((r["material_id"], r["plant"]), {})[r["anio_mes"]] = r["m2"] or 0.0
+    return serie
 
 
 def _cargar_candidatos(db: sqlite3.Connection) -> list[dict]:
@@ -47,34 +62,12 @@ def _cargar_candidatos(db: sqlite3.Connection) -> list[dict]:
     return _sin_plantas_fuera_de_universo(db, candidatos)
 
 
-def _serie_cajas(db: sqlite3.Connection, candidatos: list[dict]) -> dict:
-    """Serie mensual en cajas por (material_id, plant)."""
-    material_ids = sorted({r["material_id"] for r in candidatos})
-    ph = ",".join("?" * len(material_ids))
-    ventas_rows = db.execute(
-        f"""SELECT material_id, plant, anio_mes, SUM(cantidad_m2) AS m2
-            FROM ventas_mensuales
-            WHERE material_id IN ({ph})
-            GROUP BY material_id, plant, anio_mes
-            ORDER BY anio_mes""",
-        material_ids,
-    ).fetchall()
-
-    m2_por_caja_map = {r["material_id"]: r["m2_por_caja"] for r in candidatos}
-    serie: dict[tuple[str, str], list[tuple[str, float]]] = {}
-    for r in ventas_rows:
-        key = (r["material_id"], r["plant"])
-        cajas = calc_m2_a_cajas(r["m2"] or 0.0, m2_por_caja_map.get(r["material_id"]))
-        serie.setdefault(key, []).append((r["anio_mes"], cajas))
-    return serie
-
-
-def _info_por_material(candidatos: list[dict], serie: dict) -> dict[str, list[dict]]:
+def _info_por_material(candidatos: list[dict], serie: dict, meses: list[str]) -> dict[str, list[dict]]:
     """info por (material, plant): cobertura, déficit, excedente."""
     info_por_material: dict[str, list[dict]] = {}
     for r in candidatos:
         disp_neto = round((r["disponible"] or 0) + (r["transito"] or 0) - (r["comprometido"] or 0), 2)
-        dem = _demanda_promedio(serie, (r["material_id"], r["plant"]))
+        dem = consumo_linea(serie, (r["material_id"], r["plant"]), meses, r["m2_por_caja"])["demandaCajas"]
         cobertura = calc_cobertura_meses(disp_neto, dem)
         objetivo = r["meses_objetivo"]
 
@@ -156,9 +149,12 @@ def _compute_all_propuestas(db: sqlite3.Connection, costo_por_corredor: dict) ->
     if not candidatos:
         return []
 
-    serie = _serie_cajas(db, candidatos)
+    # Ventana completa sin filtro por material: son solo 4 meses, y evita
+    # mandar miles de parámetros (SQL Server tope 2100).
+    meses = meses_ventana(mes_actual_dataset(db))
+    serie = _serie_m2(db, meses, [])
     propuestas = []
-    for material_id, lineas in _info_por_material(candidatos, serie).items():
+    for material_id, lineas in _info_por_material(candidatos, serie, meses).items():
         propuestas.extend(_propuestas_material(material_id, lineas, costo_por_corredor))
 
     propuestas.sort(key=lambda p: p["ahorroEstimado"], reverse=True)

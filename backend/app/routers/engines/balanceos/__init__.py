@@ -34,7 +34,6 @@ from .config import (
 from .constantes import (  # noqa: F401
     COSTO_CAJA_TRASLADO_DEFAULT,
     DEFAULT_OBJETIVO_MESES,
-    MESES_DEMANDA,
     UMBRAL_DIAS_PEDIDO_DEFAULT,
     _now,
 )

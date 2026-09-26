@@ -11,7 +11,7 @@ from fastapi import Depends, Query
 
 from app.core import articulo_vivo
 from app.core.db import get_db
-from app.routers.engines.sugeridos import calc_cobertura_meses, calc_m2_a_cajas, _tabla_existe
+from app.routers.engines.sugeridos import calc_cobertura_meses, _tabla_existe
 from app.routers.semaforo import _fecha_pedido_simulada
 
 from . import vivo as balanceos_vivo
@@ -22,7 +22,8 @@ from .persistencia import (
     _sin_plantas_fuera_de_universo,
     _umbral_dias_pedido,
 )
-from .propuestas import _demanda_promedio
+from .consumo import consumo_linea, mes_actual_dataset, meses_ventana
+from .propuestas import _serie_m2
 from .triggers import (
     calc_cajas_a_m2,
     calc_cantidad_sugerida_balanceo,
@@ -51,19 +52,6 @@ def _filas_material(db: sqlite3.Connection, material_id: str) -> list[dict]:
     return _sin_plantas_fuera_de_universo(db, rows)
 
 
-def _serie_cajas_por_plant(db: sqlite3.Connection, material_id: str, m2_por_caja) -> dict:
-    ventas_rows = db.execute(
-        """SELECT plant, anio_mes, SUM(cantidad_m2) AS m2 FROM ventas_mensuales
-           WHERE material_id = ? GROUP BY plant, anio_mes ORDER BY anio_mes""",
-        (material_id,),
-    ).fetchall()
-    serie: dict[str, list[tuple[str, float]]] = {}
-    for r in ventas_rows:
-        cajas = calc_m2_a_cajas(r["m2"] or 0.0, m2_por_caja)
-        serie.setdefault(r["plant"], []).append((r["anio_mes"], cajas))
-    return serie
-
-
 def _docs_compra(db: sqlite3.Connection, material_id: str):
     if not _tabla_existe(db, "pedidos_compra_detalle"):
         return None
@@ -74,14 +62,16 @@ def _docs_compra(db: sqlite3.Connection, material_id: str):
     ).fetchall()
 
 
-def _lineas(rows: list[dict], serie: dict) -> list[dict]:
+def _lineas(rows: list[dict], serie: dict, meses: list[str]) -> list[dict]:
     lineas = []
     for r in rows:
         disp_neto = round((r["disponible"] or 0) + (r["transito"] or 0) - (r["comprometido"] or 0), 2)
-        dem = _demanda_promedio(serie, r["plant"])
+        consumo = consumo_linea(serie, (r["material_id"], r["plant"]), meses, r["m2_por_caja"])
+        dem = consumo["demandaCajas"]
         cobertura = calc_cobertura_meses(disp_neto, dem)
         estado = estado_semaforo_balanceo(disp_neto, cobertura, r["meses_objetivo"])
-        lineas.append({"row": r, "disponible_neto": disp_neto, "demanda": dem, "cobertura": cobertura, "estado": estado})
+        lineas.append({"row": r, "disponible_neto": disp_neto, "demanda": dem, "cobertura": cobertura,
+                       "estado": estado, "consumo": consumo})
     return lineas
 
 
@@ -117,6 +107,7 @@ def _fila_grid(material_id: str, linea: dict, compra: dict, trigger, descartado:
         "mesesObjetivo": r["meses_objetivo"],
         "disponibleNetoCajas": linea["disponible_neto"],
         "demandaCajas": linea["demanda"],
+        "consumo": linea["consumo"],
         "m2PorCaja": m2_por_caja,
         "backorderCompra": {
             "cajas": pedidos_abiertos,
@@ -153,11 +144,12 @@ def _compute_grid1(db: sqlite3.Connection, material_id: str, corredor: Optional[
         return []
 
     m2_por_caja = rows[0]["m2_por_caja"]
-    serie = _serie_cajas_por_plant(db, material_id, m2_por_caja)
+    meses = meses_ventana(mes_actual_dataset(db))
+    serie = _serie_m2(db, meses, [material_id])
     umbral_dias = _umbral_dias_pedido(db)
     descartes = _descartes_activos(db, material_id, hoy)
     docs_compra = vivo["pedidos"] if en_vivo else _docs_compra(db, material_id)
-    lineas = _lineas(rows, serie)
+    lineas = _lineas(rows, serie, meses)
 
     resultado = []
     for linea in lineas:
